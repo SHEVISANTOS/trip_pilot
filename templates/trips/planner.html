@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="hero-copy">
+    <div class="eyebrow">AI TRAVEL PLANNER & BUDGET ASSISTANT</div>
+    <h1>Tell us where you want to go.<br><span>Tell us your budget.</span></h1>
+    <p>Get a complete travel plan with visa guidance, flights, hotels, transfers, food, attractions and a day-by-day itinerary.</p>
+    <div class="pills"><span>🛂 Visa guidance</span><span>✈ Flight comparison</span><span>🏨 Hotels</span><span>📊 Budget optimizer</span></div>
+  </div>
+  <div class="hero-card">
+    <div class="mini-row"><b>Destination</b><span>Türkiye 🇹🇷</span></div>
+    <div class="mini-row"><b>Budget</b><span>$5,000</span></div>
+    <div class="mini-row"><b>Trip cost</b><span class="good">$4,730</span></div>
+    <div class="mini-row"><b>Remaining</b><span class="good">$270</span></div>
+    <div class="progress"><i style="width:94.6%"></i></div>
+    <small>94.6% of budget allocated</small>
+  </div>
+</section>
+
+<section id="planner" class="planner section">
+  <div class="section-title"><div><span class="eyebrow">START HERE</span><h2>Build your trip</h2></div><p>Enter the essentials. The planner creates a detailed budget and itinerary.</p></div>
+  <form method="post" class="form-grid">
+    {% csrf_token %}
+    <label>Departure city{{ form.departure }}</label>
+    <label>Destination{{ form.destination }}</label>
+    <label>Nationality{{ form.nationality }}</label>
+    <label>Trip purpose{{ form.purpose }}</label>
+    <label>Departure date{{ form.start_date }}</label>
+    <label>Return date{{ form.end_date }}</label>
+    <label>Adults{{ form.adults }}</label>
+    <label>Children{{ form.children }}</label>
+    <label>Travel style{{ form.travel_style }}</label>
+    <label>Accommodation{{ form.hotel_preference }}</label>
+    <label>Interests{{ form.interests }}</label>
+    <label>Currency{{ form.currency }}</label>
+    <label class="wide budget-input">Total trip budget<div class="money"><span id="currencySymbol">$</span>{{ form.budget }}</div></label>
+    {% if form.non_field_errors %}
+      <div class="wide alert warn">{{ form.non_field_errors|join:" " }}</div>
+    {% endif %}
+    <div class="wide form-actions"><button class="primary" type="submit">✨ Create My Travel Plan</button></div>
+  </form>
+  <p class="disclaimer">Estimated data: live prices and visa details connect through the integrations layer when API keys are configured, and fall back to illustrative estimates otherwise. Verify before booking.</p>
+</section>
+
+<section id="how" class="how section">
+  <h2>How TripPilot AI works</h2>
+  <div class="steps"><div><b>1</b><h3>Enter your trip</h3><p>Destination, dates, travellers and budget.</p></div><div><b>2</b><h3>AI allocates</h3><p>Flights, hotel, food, transport and activities.</p></div><div><b>3</b><h3>Compare options</h3><p>Budget, recommended and premium choices.</p></div><div><b>4</b><h3>Book</h3><p>Connect to booking partners for live availability.</p></div></div>
+</section>
+{% endblock %}

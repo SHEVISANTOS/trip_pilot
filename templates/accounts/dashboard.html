@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load trip_extras %}
+{% block title %}My Trips — TripPilot AI{% endblock %}
+{% block content %}
+<section class="results">
+  <div class="section-title" style="margin:35px 0">
+    <div><span class="eyebrow">YOUR ACCOUNT</span><h2>Saved trips</h2></div>
+    <a class="primary" style="text-decoration:none;padding:13px 20px;border-radius:10px" href="{% url 'trips:planner' %}">✨ Plan a new trip</a>
+  </div>
+
+  {% if saved_trips %}
+  <div class="cards">
+    {% for saved in saved_trips %}
+      <div class="card">
+        <span class="tag {% if not saved.trip_request.budget_breakdown.over_budget %}green{% endif %}">
+          {% if saved.trip_request.budget_breakdown.over_budget %}OVER BUDGET{% else %}WITHIN BUDGET{% endif %}
+        </span>
+        <h4>{{ saved.trip_request.destination }}</h4>
+        <p>{{ saved.trip_request.departure }} • {{ saved.trip_request.budget_breakdown.nights }} nights • saved {{ saved.saved_at|date:"M j, Y" }}</p>
+        <div class="card-price">{{ saved.trip_request.budget_breakdown.total|money:saved.trip_request.currency }}</div>
+        <p><a href="{% url 'trips:results' saved.trip_request.pk %}">View plan →</a> · <a href="{% url 'pdfexport:export' saved.pk %}">Download PDF</a></p>
+      </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="panel full">
+    <p>No saved trips yet. <a href="{% url 'trips:planner' %}">Build your first plan</a> and click "Save trip" on the results page.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

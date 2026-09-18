@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% load static %}
+<title>{% block title %}TripPilot AI — Plan Your Trip Around Your Budget{% endblock %}</title>
+<link rel="stylesheet" href="{% static 'style.css' %}">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">✈</span><span>TripPilot <b>AI</b></span></div>
+  <nav>
+    <a href="{% url 'trips:planner' %}">Plan</a>
+    {% if user.is_authenticated %}
+      <a href="{% url 'accounts:dashboard' %}">My Trips</a>
+      <a href="{% url 'accounts:logout' %}">Log out</a>
+    {% else %}
+      <a href="{% url 'accounts:login' %}">Log in</a>
+      <a href="{% url 'accounts:signup' %}">Sign up</a>
+    {% endif %}
+  </nav>
+</header>
+
+{% if messages %}
+<div class="section" style="padding-top:20px;padding-bottom:0">
+  {% for message in messages %}
+    <div class="alert {% if message.tags == 'error' %}warn{% else %}info{% endif %}">{{ message }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<main>
+{% block content %}{% endblock %}
+</main>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <button id="closeModal" class="close">×</button>
+    <h2 id="modalTitle">Booking</h2>
+    <p id="modalText"></p>
+    <div class="notice">This prototype does not process payments. In the production version this action connects to a verified booking or travel provider.</div>
+    <button id="modalOk" class="primary">Continue</button>
+  </div>
+</div>
+<script src="{% static 'app.js' %}"></script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

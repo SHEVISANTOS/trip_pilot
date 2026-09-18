@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TripPilot AI — Plan Your Trip Around Your Budget</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">✈</span><span>TripPilot <b>AI</b></span></div>
+  <nav><a href="#planner">Plan</a><a href="#how">How it works</a><a href="#results">My Trip</a></nav>
+  <button class="outline" id="demoBtn">Load Demo</button>
+</header>
+
+<section class="hero">
+  <div class="hero-copy">
+    <div class="eyebrow">AI TRAVEL PLANNER & BUDGET ASSISTANT</div>
+    <h1>Tell us where you want to go.<br><span>Tell us your budget.</span></h1>
+    <p>Get a complete travel plan with visa guidance, flights, hotels, transfers, food, attractions and a day-by-day itinerary.</p>
+    <div class="pills"><span>🛂 Visa guidance</span><span>✈ Flight comparison</span><span>🏨 Hotels</span><span>📊 Budget optimizer</span></div>
+  </div>
+  <div class="hero-card">
+    <div class="mini-row"><b>Destination</b><span>Türkiye 🇹🇷</span></div>
+    <div class="mini-row"><b>Budget</b><span>$5,000</span></div>
+    <div class="mini-row"><b>Trip cost</b><span class="good">$4,730</span></div>
+    <div class="mini-row"><b>Remaining</b><span class="good">$270</span></div>
+    <div class="progress"><i style="width:94.6%"></i></div>
+    <small>94.6% of budget allocated</small>
+  </div>
+</section>
+
+<main>
+<section id="planner" class="planner section">
+  <div class="section-title"><div><span class="eyebrow">START HERE</span><h2>Build your trip</h2></div><p>Enter the essentials. The planner creates a detailed budget and itinerary.</p></div>
+  <form id="tripForm" class="form-grid">
+    <label>Departure city<input id="departure" required placeholder="e.g. Dar es Salaam" value="Dar es Salaam"></label>
+    <label>Destination<input id="destination" required placeholder="e.g. Istanbul, Türkiye" value="Istanbul, Türkiye"></label>
+    <label>Nationality<input id="nationality" required placeholder="e.g. Tanzanian" value="Tanzanian"></label>
+    <label>Trip purpose<select id="purpose"><option>Holiday</option><option>Business</option><option>Family Visit</option><option>Honeymoon</option></select></label>
+    <label>Departure date<input id="startDate" type="date" required></label>
+    <label>Return date<input id="endDate" type="date" required></label>
+    <label>Adults<input id="adults" type="number" min="1" value="2"></label>
+    <label>Children<input id="children" type="number" min="0" value="1"></label>
+    <label>Travel style<select id="style"><option value="budget">Budget</option><option value="balanced" selected>Comfortable / Balanced</option><option value="luxury">Luxury</option></select></label>
+    <label>Accommodation<select id="hotelPref"><option>3–4 Star Hotel</option><option>Apartment</option><option>Resort</option><option>Luxury Hotel</option></select></label>
+    <label>Interests<input id="interests" placeholder="History, food, shopping, nature" value="History, food, sightseeing"></label>
+    <label>Currency<select id="currency"><option value="USD">USD ($)</option><option value="TZS">TZS</option><option value="EUR">EUR (€)</option><option value="GBP">GBP (£)</option></select></label>
+    <label class="wide budget-input">Total trip budget<div class="money"><span id="currencySymbol">$</span><input id="budget" type="number" min="100" value="5000"></div></label>
+    <div class="wide form-actions"><button class="primary" type="submit">✨ Create My Travel Plan</button><button class="secondary" type="button" id="clearBtn">Clear</button></div>
+  </form>
+  <p class="disclaimer">Demo version: prices and visa details are illustrative estimates. Connect live data APIs before using for real bookings.</p>
+</section>
+
+<section id="results" class="results hidden">
+  <div class="trip-banner">
+    <div><span class="eyebrow">YOUR RECOMMENDED TRIP</span><h2 id="tripHeading">Istanbul, Türkiye</h2><p id="tripMeta"></p></div>
+    <button class="primary" id="optimizeBtn">⚡ Optimize for My Budget</button>
+  </div>
+
+  <div class="kpis">
+    <div><small>TRAVEL BUDGET</small><strong id="budgetKpi">$5,000</strong></div>
+    <div><small>ESTIMATED COST</small><strong id="totalKpi">$4,730</strong></div>
+    <div><small>REMAINING</small><strong class="good" id="remainingKpi">$270</strong></div>
+    <div><small>BUDGET USED</small><strong id="usedKpi">94.6%</strong></div>
+  </div>
+
+  <div id="alertBox" class="alert info">ℹ️ This is a planning estimate. Verify live prices and immigration requirements before booking.</div>
+
+  <div class="two-col">
+    <article class="panel">
+      <div class="panel-head"><h3>🛂 Visa & Entry</h3><span class="tag" id="visaTag">VERIFY</span></div>
+      <div id="visaContent"></div>
+      <button class="link-btn" data-book="Visa / immigration verification">Verify requirements</button>
+    </article>
+    <article class="panel">
+      <div class="panel-head"><h3>💰 Budget Allocation</h3><span id="budgetStatus" class="tag green">WITHIN BUDGET</span></div>
+      <div id="budgetTable"></div>
+    </article>
+  </div>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>✈ Recommended Flights</h3><span>Prices per itinerary</span></div>
+    <div id="flights"></div>
+  </section>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>🏨 Hotel Recommendations</h3><span>Based on your travel style</span></div>
+    <div id="hotels" class="cards"></div>
+  </section>
+
+  <div class="two-col">
+    <section class="panel">
+      <div class="panel-head"><h3>🚕 Transport Plan</h3><span>Named journeys</span></div>
+      <div id="transport"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h3>🍽️ Food Plan</h3><span>Estimated meals</span></div>
+      <div id="food"></div>
+    </section>
+  </div>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>🎟️ Places to Visit</h3><span>Recommended attractions & costs</span></div>
+    <div id="attractions" class="cards"></div>
+  </section>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>📅 Day-by-Day Itinerary</h3><span>Travel, activities and daily costs</span></div>
+    <div id="itinerary"></div>
+  </section>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>📋 Booking Checklist</h3><span>Keep track of your trip</span></div>
+    <div id="checklist" class="checklist"></div>
+  </section>
+</section>
+
+<section id="how" class="how section">
+  <h2>How TripPilot AI works</h2>
+  <div class="steps"><div><b>1</b><h3>Enter your trip</h3><p>Destination, dates, travellers and budget.</p></div><div><b>2</b><h3>AI allocates</h3><p>Flights, hotel, food, transport and activities.</p></div><div><b>3</b><h3>Compare options</h3><p>Budget, recommended and premium choices.</p></div><div><b>4</b><h3>Book</h3><p>Connect to booking partners for live availability.</p></div></div>
+</section>
+</main>
+
+<div id="modal" class="modal hidden"><div class="modal-box"><button id="closeModal" class="close">×</button><h2 id="modalTitle">Booking</h2><p id="modalText"></p><div class="notice">This prototype does not process payments. In the production version this action connects to a verified booking or travel provider.</div><button id="modalOk" class="primary">Continue</button></div></div>
+<script src="app.js"></script>
+</body>
+</html>

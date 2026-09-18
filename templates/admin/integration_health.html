@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="rounded-default overflow-x-auto scrollbar-default border border-base-200 shadow-xs dark:border-base-800 bg-white dark:bg-base-900">
+  <table class="w-full border-spacing-none border-separate">
+    <thead>
+      <tr class="text-left text-font-subtle-light dark:text-font-subtle-dark text-xs font-semibold uppercase">
+        <th class="px-4 py-3">Provider</th>
+        <th class="px-4 py-3">Last successful call</th>
+        <th class="px-4 py-3">Errors logged</th>
+        <th class="px-4 py-3">Total calls</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr class="border-t border-base-200 dark:border-base-800">
+        <td class="px-4 py-3 font-medium">{{ row.provider }}</td>
+        <td class="px-4 py-3">{{ row.last_success|default:"Never" }}</td>
+        <td class="px-4 py-3">{% if row.error_count %}<span class="text-orange-600 font-semibold">{{ row.error_count }}</span>{% else %}0{% endif %}</td>
+        <td class="px-4 py-3">{{ row.total_calls }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="text-font-subtle-light dark:text-font-subtle-dark text-sm mt-4">
+  A live provider with no successful calls logged is either unconfigured (missing API key in .env) or its recent calls all failed — every client degrades to illustrative demo data in that case, so trip planning keeps working either way.
+</p>
+{% endblock %}

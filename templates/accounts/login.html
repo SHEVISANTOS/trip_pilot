@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Log in — TripPilot AI{% endblock %}
+{% block content %}
+<section class="planner section">
+  <div class="section-title"><div><span class="eyebrow">WELCOME BACK</span><h2>Log in</h2></div></div>
+  {% if form.errors %}<div class="alert warn">Your username and password didn't match. Please try again.</div>{% endif %}
+  <form method="post" class="form-grid" style="max-width:420px">
+    {% csrf_token %}
+    {% for field in form %}
+      <label class="wide">{{ field.label }}{{ field }}</label>
+    {% endfor %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <div class="wide form-actions"><button class="primary" type="submit">Log in</button></div>
+  </form>
+  <p class="disclaimer">New here? <a href="{% url 'accounts:signup' %}">Create an account</a></p>
+</section>
+{% endblock %}

@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% load trip_extras %}
+{% block title %}{{ trip_request.destination }} — TripPilot AI{% endblock %}
+{% block content %}
+<section class="results">
+  <div class="trip-banner">
+    <div>
+      <span class="eyebrow">YOUR RECOMMENDED TRIP</span>
+      <h2>{{ trip_request.destination }}</h2>
+      <p>{{ trip_request.departure }} • {{ breakdown.people }} traveller{{ breakdown.people|pluralize }} • {{ breakdown.nights }} nights • {{ trip_request.purpose }}</p>
+    </div>
+    <div>
+      <form method="post" action="{% url 'trips:optimize' trip_request.pk %}" style="display:inline">
+        {% csrf_token %}
+        <button class="primary" type="submit">⚡ Optimize for My Budget</button>
+      </form>
+      {% if user.is_authenticated and not is_saved %}
+      <form method="post" action="{% url 'trips:save_trip' trip_request.pk %}" style="display:inline">
+        {% csrf_token %}
+        <button class="secondary" type="submit">☆ Save trip</button>
+      </form>
+      {% elif is_saved %}
+        <span class="tag green">SAVED</span>
+        <a class="link-btn" href="{% url 'pdfexport:export' saved_trip.pk %}">⬇ Download PDF</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div><small>TRAVEL BUDGET</small><strong>{{ trip_request.budget|money:trip_request.currency }}</strong></div>
+    <div><small>ESTIMATED COST</small><strong>{{ breakdown.total|money:trip_request.currency }}</strong></div>
+    <div><small>REMAINING</small><strong class="{% if breakdown.remaining >= 0 %}good{% endif %}">{{ breakdown.remaining|money:trip_request.currency }}</strong></div>
+    <div><small>BUDGET USED</small><strong>{{ percent_used }}%</strong></div>
+  </div>
+
+  {% if breakdown.over_budget %}
+  <div class="alert warn">⚠️ Your current plan is {{ breakdown.remaining|money:trip_request.currency }} over budget. Use “Optimize for My Budget” to reduce costs.</div>
+  {% else %}
+  <div class="alert info">ℹ️ Your plan is currently within budget with {{ breakdown.remaining|money:trip_request.currency }} remaining. Prices are illustrative until live provider keys are configured.</div>
+  {% endif %}
+
+  <div class="two-col">
+    <article class="panel">
+      <div class="panel-head"><h3>🛂 Visa & Entry</h3><span class="tag" >{{ breakdown.visa.tag }}</span></div>
+      <ul class="small-list">
+        <li><span><b>Type</b><br>{{ breakdown.visa.type }}</span></li>
+        <li><span><b>Application</b><br>{{ breakdown.visa.method }}</span></li>
+        <li><span><b>Length of stay</b><br>{{ breakdown.visa.stay }}</span></li>
+        <li><span><b>Estimated planning allowance</b></span><b>{{ breakdown.visa_cost|money:trip_request.currency }}</b></li>
+      </ul>
+    </article>
+    <article class="panel">
+      <div class="panel-head"><h3>💰 Budget Allocation</h3><span class="tag {% if not breakdown.over_budget %}green{% endif %}">{% if breakdown.over_budget %}OVER BUDGET{% else %}WITHIN BUDGET{% endif %}</span></div>
+      <table class="data-table">
+        <tbody>
+        {% for item in breakdown.items %}
+          <tr><td><b>{{ item.label }}</b><br><small>{{ item.detail }}</small></td><td>{{ item.amount|money:trip_request.currency }}</td></tr>
+        {% endfor %}
+          <tr><td><b>TOTAL</b></td><td>{{ breakdown.total|money:trip_request.currency }}</td></tr>
+        </tbody>
+      </table>
+    </article>
+  </div>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>✈ Recommended Flights</h3><span>Prices per itinerary</span></div>
+    <div>
+    {% for flight in flights_display %}
+      <div class="flight">
+        <div><span class="tag {% if forloop.first %}green{% endif %}">{{ flight.label }}</span><h4>{{ flight.airline }}</h4></div>
+        <div class="route"><b>{{ flight.route }}</b>{{ flight.stops }} • {{ flight.duration }}</div>
+        <div><small>Estimated total</small><div class="price">{{ flight.display_price|money:trip_request.currency }}</div></div>
+        <button class="primary" type="button" data-book="{{ flight.airline }} flight">View / Book</button>
+      </div>
+    {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>🏨 Hotel Recommendations</h3><span>Based on your travel style</span></div>
+    <div class="cards">
+    {% for hotel in hotels_display %}
+      <div class="card">
+        <span class="tag {% if forloop.first %}green{% endif %}">{% if forloop.first %}RECOMMENDED{% else %}{{ hotel.rating }}{% endif %}</span>
+        <h4>{{ hotel.name }}</h4>
+        <p>{{ hotel.area }} • {{ hotel.rating }}</p>
+        <p>{{ hotel.desc }}</p>
+        <div class="card-price">{{ hotel.display_total|money:trip_request.currency }} <small>total</small></div>
+        <p>Approx. {{ hotel.per_night|money:trip_request.currency }}/night • {{ breakdown.nights }} nights</p>
+        <button class="primary" type="button" data-book="{{ hotel.name }} hotel">View / Book</button>
+      </div>
+    {% endfor %}
+    </div>
+  </section>
+
+  <div class="two-col">
+    <section class="panel">
+      <div class="panel-head"><h3>🚕 Transport Plan</h3><span>Named journeys</span></div>
+      <ul class="small-list">
+        <li><span>Airport → {{ breakdown.hotels.0.name }}<br><small>Private/shared transfer estimate</small></span><b>{{ transfer_leg|money:trip_request.currency }}</b></li>
+        <li><span>{{ breakdown.hotels.0.name }} → attractions<br><small>Metro, tram and taxis</small></span><b>{{ breakdown.transport_cost|money:trip_request.currency }}</b></li>
+        <li><span>Hotel → Airport</span><b>{{ transfer_leg|money:trip_request.currency }}</b></li>
+        <li><span><b>Total transport allocation</b></span><b>{{ transport_total|money:trip_request.currency }}</b></li>
+      </ul>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h3>🍽️ Food Plan</h3><span>Estimated meals</span></div>
+      <ul class="small-list">
+        <li><span>Breakfast<br><small>{{ breakdown.hotels.0.name }} — where included</small></span><b>Included/varies</b></li>
+        <li><span>Lunch<br><small>Local restaurant allowance</small></span><b>{{ per_day_lunch|money:trip_request.currency }}/day</b></li>
+        <li><span>Dinner<br><small>Restaurant allowance</small></span><b>{{ per_day_dinner|money:trip_request.currency }}/day</b></li>
+        <li><span>Snacks & drinks</span><b>{{ per_day_snacks|money:trip_request.currency }}/day</b></li>
+        <li><span><b>Total food allocation</b></span><b>{{ breakdown.food_cost|money:trip_request.currency }}</b></li>
+      </ul>
+    </section>
+  </div>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>🎟️ Places to Visit</h3><span>Recommended attractions & costs</span></div>
+    <div class="cards">
+    {% for attraction in attractions_display %}
+      <div class="card">
+        <span class="tag">{% if attraction.cost == 0 %}FREE{% else %}ACTIVITY{% endif %}</span>
+        <h4>{{ attraction.name }}</h4>
+        <p>{{ attraction.desc }}</p>
+        <div class="card-price">{{ attraction.display_cost|money:trip_request.currency }}</div>
+        <button class="secondary" type="button" data-book="{{ attraction.name }} activity">View / Book</button>
+      </div>
+    {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>📅 Day-by-Day Itinerary</h3><span>Travel, activities and daily costs</span></div>
+    <div>
+    {% for day in itinerary.days.all %}
+      <div class="it-day">
+        <h4>{{ day.title }}</h4>
+        {% for activity in day.activities.all %}
+        <div class="timeline"><time>{{ activity.time }}</time><span>{{ activity.title }}</span><span class="cost">{{ activity.cost_display }}</span></div>
+        {% endfor %}
+      </div>
+    {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel full">
+    <div class="panel-head"><h3>📋 Booking Checklist</h3><span>Keep track of your trip</span></div>
+    <div class="checklist">
+    {% if is_saved %}
+      {% for entry in saved_trip.checklist %}
+        <form method="post" action="{% url 'trips:toggle_checklist' saved_trip.pk forloop.counter0 %}">
+          {% csrf_token %}
+          <button type="submit" class="check {% if entry.done %}done{% endif %}">{% if entry.done %}☑{% else %}☐{% endif %} {{ entry.label }}</button>
+        </form>
+      {% endfor %}
+    {% else %}
+      {% for label in checklist_items %}
+        <div class="check" data-local-checklist>☐ {{ label }}</div>
+      {% endfor %}
+      <p class="disclaimer wide">{% if user.is_authenticated %}Save this trip to keep checklist progress across visits.{% else %}<a href="{% url 'accounts:login' %}">Log in</a> and save this trip to keep checklist progress across visits.{% endif %}</p>
+    {% endif %}
+    </div>
+  </section>
+</section>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Sign up — TripPilot AI{% endblock %}
+{% block content %}
+<section class="planner section">
+  <div class="section-title"><div><span class="eyebrow">CREATE ACCOUNT</span><h2>Save your trips</h2></div><p>Sign up to save itineraries, track your booking checklist and export PDFs.</p></div>
+  <form method="post" class="form-grid" style="max-width:420px">
+    {% csrf_token %}
+    {% for field in form %}
+      <label class="wide">{{ field.label }}{{ field }}
+        {% if field.errors %}<small class="warn">{{ field.errors|join:" " }}</small>{% endif %}
+      </label>
+    {% endfor %}
+    <div class="wide form-actions"><button class="primary" type="submit">Create account</button></div>
+  </form>
+  <p class="disclaimer">Already have an account? <a href="{% url 'accounts:login' %}">Log in</a></p>
+</section>
+{% endblock %}
