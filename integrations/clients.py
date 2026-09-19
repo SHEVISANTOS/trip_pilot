@@ -4,7 +4,7 @@ from integrations.activities import OpenTripMapClient
 from integrations.amadeus import AmadeusClient
 from integrations.exchange import ExchangeRateClient
 from integrations.maps import MapsClient
-from integrations.visa import SherpaVisaClient
+from integrations.visa import PassportIndexVisaClient
 
 
 @dataclass
@@ -16,6 +16,6 @@ class IntegrationClients:
 
     amadeus: AmadeusClient = field(default_factory=AmadeusClient)
     activities: OpenTripMapClient = field(default_factory=OpenTripMapClient)
-    visa: SherpaVisaClient = field(default_factory=SherpaVisaClient)
+    visa: PassportIndexVisaClient = field(default_factory=PassportIndexVisaClient)
     exchange: ExchangeRateClient = field(default_factory=ExchangeRateClient)
     maps: MapsClient = field(default_factory=MapsClient)

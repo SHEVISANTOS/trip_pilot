@@ -139,10 +139,18 @@ LOGOUT_REDIRECT_URL = "trips:planner"
 AMADEUS_API_KEY = env("AMADEUS_API_KEY", default="")
 AMADEUS_API_SECRET = env("AMADEUS_API_SECRET", default="")
 OPENTRIPMAP_API_KEY = env("OPENTRIPMAP_API_KEY", default="")
-SHERPA_API_KEY = env("SHERPA_API_KEY", default="")
 GOOGLE_MAPS_API_KEY = env("GOOGLE_MAPS_API_KEY", default="")
 AIRALO_API_KEY = env("AIRALO_API_KEY", default="")
 SAFETYWING_API_KEY = env("SAFETYWING_API_KEY", default="")
+
+# Visa guidance: no key needed — backed by the open, MIT-licensed Passport
+# Index dataset vendored at integrations/data/passport_index_visa.csv
+# (see integrations/visa.py). Override to point at a refreshed copy.
+# `or` (not env()'s `default=`) handles VISA_DATASET_PATH=<empty> in .env —
+# django-environ's default only kicks in when the var is absent entirely.
+VISA_DATASET_PATH = env("VISA_DATASET_PATH", default="") or str(
+    BASE_DIR / "integrations" / "data" / "passport_index_visa.csv"
+)
 
 
 # Rate limiting (django-ratelimit) for the planner endpoint.
