@@ -60,7 +60,6 @@ trippilot/
 │   ├── trips/planner.html     # port of index.html form
 │   ├── trips/results.html     # port of #results section
 │   └── pdfexport/itinerary_pdf.html
-└── requirements.txt
 ```
 
 **Migration approach for the frontend:** keep `index.html`'s markup/CSS as the template skeleton, but move `render()` in `app.js` server-side — the planner form does a normal POST to a Django view, which calls `pricing.build_plan()`, and `results.html` renders the same panels using Django template tags instead of the JS template-literal building. This keeps your current visual design intact while making the data real and shareable via URL (`/trips/<id>/`).
@@ -90,12 +89,3 @@ trippilot/
 - **Security**: CSRF on all forms (default Django), never expose provider API keys client-side, rate-limit the planner endpoint per user/IP to avoid quota exhaustion on paid APIs.
 
 ---
-
-## 6. How to hand this to the assistant
-
-Paste Sections 0–5 above as the prompt, and attach the current `app.js`, `index.html`, `style.css`, and `README.txt` as reference for the design and existing calculation logic to preserve. Ask it to start with:
-1. Project scaffold + settings + `.env.example`
-2. `pricing/` module ported from the existing `calculatePlan()` math (pure Python, testable)
-3. `trips/` app with the form + results template porting `index.html`
-4. One integration client at a time (start with exchange rate + OpenTripMap, since both are free/no-approval, before Amadeus/Sherpa)
-5. Admin panel theming last, once models are stable
