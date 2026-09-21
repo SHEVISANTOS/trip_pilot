@@ -46,6 +46,16 @@ class ExchangeRate:
 
 
 @dataclass
+class EsimBundle:
+    name: str
+    description: str
+    data_mb: float
+    unlimited: bool
+    duration_days: int
+    price: float
+
+
+@dataclass
 class TravelDataBundle:
     visa: VisaInfo
     flights: list[FlightOffer]

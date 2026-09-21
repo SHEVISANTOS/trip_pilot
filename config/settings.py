@@ -140,8 +140,8 @@ AMADEUS_API_KEY = env("AMADEUS_API_KEY", default="")
 AMADEUS_API_SECRET = env("AMADEUS_API_SECRET", default="")
 OPENTRIPMAP_API_KEY = env("OPENTRIPMAP_API_KEY", default="")
 GOOGLE_MAPS_API_KEY = env("GOOGLE_MAPS_API_KEY", default="")
-AIRALO_API_KEY = env("AIRALO_API_KEY", default="")
 SAFETYWING_API_KEY = env("SAFETYWING_API_KEY", default="")
+ESIM_GO_API_KEY = env("ESIM_GO_API_KEY", default="")
 
 # Visa guidance: no key needed — backed by the open, MIT-licensed Passport
 # Index dataset vendored at integrations/data/passport_index_visa.csv

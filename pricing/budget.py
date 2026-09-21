@@ -5,11 +5,29 @@ network access (see pricing/tests.py).
 from dataclasses import dataclass, field
 from datetime import date
 
+from integrations.countries import region_for
 from integrations.dataclasses import Attraction, FlightOffer, HotelOffer, VisaInfo
 
 STYLE_MULTIPLIERS = {"budget": 0.82, "balanced": 1.0, "luxury": 1.55}
 CURRENCY_SYMBOLS = {"USD": "$", "TZS": "TSh ", "EUR": "€", "GBP": "£"}
 DEFAULT_NIGHTS = 8
+
+# No eSIM provider has a usable free API (Airalo etc. are all partner-only),
+# so this is a static per-region-per-day rate rather than a live quote.
+# Regions roughly track real-world data pricing — Asia and Europe tend to
+# have cheap, competitive eSIM plans; Africa and Oceania tend to be pricier
+# due to less carrier competition. Capped at SIM_COST_CAP_DAYS since
+# multi-day bundles plateau in price rather than scaling linearly forever.
+REGION_SIM_DAILY_RATES = {
+    "Asia": 2.0,
+    "Europe": 2.5,
+    "Americas": 3.5,
+    "Africa": 4.0,
+    "Oceania": 4.5,
+    "Antarctic": 6.0,
+}
+DEFAULT_SIM_DAILY_RATE = 3.0
+SIM_COST_CAP_DAYS = 15
 
 
 def format_money(amount: float, currency: str) -> str:
@@ -23,6 +41,15 @@ def calculate_nights(start_date: date | None, end_date: date | None, default: in
     if start_date and end_date and end_date > start_date:
         return max(1, (end_date - start_date).days)
     return default
+
+
+def estimate_sim_cost(destination: str, nights: int) -> tuple[float, str]:
+    region = region_for(destination)
+    daily_rate = REGION_SIM_DAILY_RATES.get(region, DEFAULT_SIM_DAILY_RATE)
+    billed_days = max(1, min(nights, SIM_COST_CAP_DAYS))
+    cost = round(daily_rate * billed_days)
+    detail = f"{region or 'Standard'} data estimate — {billed_days} day{'s' if billed_days != 1 else ''} coverage"
+    return cost, detail
 
 
 @dataclass
@@ -88,6 +115,7 @@ def build_plan(inputs: TripInputs, clients) -> BudgetPlan:
     flights = clients.amadeus.search_flights(inputs.departure, inputs.destination, people)
     hotels = clients.amadeus.search_hotels(inputs.destination, nights, people)
     attractions = clients.activities.search_attractions(inputs.destination)
+    esim_bundle = clients.esim.get_bundle(inputs.destination, nights)
 
     flight_cost = round(flights[0].price * mult * (people / 3))
     hotel_cost = round(hotels[0].night * nights * mult)
@@ -96,7 +124,12 @@ def build_plan(inputs: TripInputs, clients) -> BudgetPlan:
     food_cost = round(75 * nights * people * mult)
     attractions_cost = round(sum(a.cost for a in attractions if not a.optional) * mult)
     insurance_cost = round(100 * (people / 3))
-    sim_cost = 50
+    if esim_bundle:
+        sim_cost = round(esim_bundle.price)
+        data_label = "Unlimited data" if esim_bundle.unlimited else f"{esim_bundle.data_mb / 1000:g}GB"
+        sim_detail = f"{data_label} eSIM, {esim_bundle.duration_days} days ({esim_bundle.name})"
+    else:
+        sim_cost, sim_detail = estimate_sim_cost(inputs.destination, nights)
     emergency_cost = round(max(200, (flight_cost + hotel_cost + food_cost) * 0.12))
     visa_cost = round(visa.cost * people)
 
@@ -109,7 +142,7 @@ def build_plan(inputs: TripInputs, clients) -> BudgetPlan:
         LineItem("Food", "Restaurants + daily meal allowance", food_cost),
         LineItem("Attractions", "Named attractions and activities", attractions_cost),
         LineItem("Travel insurance", "Estimated travel cover", insurance_cost),
-        LineItem("SIM/eSIM", "Local connectivity package", sim_cost),
+        LineItem("SIM/eSIM", sim_detail, sim_cost),
         LineItem("Emergency reserve", "Unallocated contingency fund", emergency_cost),
     ]
     total = sum(i.amount for i in items)

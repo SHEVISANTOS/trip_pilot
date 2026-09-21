@@ -9,6 +9,7 @@ class IntegrationCallLog(models.Model):
         ("visa", "Visa guidance"),
         ("exchange_rate", "Exchange rate"),
         ("maps", "Maps / transfer estimate"),
+        ("esim", "eSIM Go — Data bundles"),
     ]
 
     provider = models.CharField(max_length=32, choices=PROVIDER_CHOICES)

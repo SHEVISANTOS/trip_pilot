@@ -5,8 +5,8 @@ import unittest
 from datetime import date
 from types import SimpleNamespace
 
-from integrations.dataclasses import Attraction, FlightOffer, HotelOffer, VisaInfo
-from pricing.budget import TripInputs, build_plan, calculate_nights
+from integrations.dataclasses import Attraction, EsimBundle, FlightOffer, HotelOffer, VisaInfo
+from pricing.budget import TripInputs, build_plan, calculate_nights, estimate_sim_cost
 from pricing.itinerary import build_itinerary
 from pricing.optimizer import optimize
 
@@ -36,8 +36,15 @@ class StubVisa:
         return VisaInfo("Tourist entry requirement", "Verify before departure.", "Check stay length", 60, "VERIFY")
 
 
+class StubEsim:
+    def get_bundle(self, destination, nights):
+        return None  # no live bundle -> build_plan() falls back to estimate_sim_cost()
+
+
 def make_clients():
-    return SimpleNamespace(amadeus=StubAmadeus(), activities=StubActivities(), visa=StubVisa())
+    return SimpleNamespace(
+        amadeus=StubAmadeus(), activities=StubActivities(), visa=StubVisa(), esim=StubEsim()
+    )
 
 
 def make_inputs(**overrides):
@@ -69,6 +76,28 @@ class CalculateNightsTests(unittest.TestCase):
         self.assertEqual(calculate_nights(date(2027, 5, 18), date(2027, 5, 10)), 8)
 
 
+class EstimateSimCostTests(unittest.TestCase):
+    def test_asia_is_cheaper_than_africa_for_same_length(self):
+        asia_cost, _ = estimate_sim_cost("Bangkok, Thailand", 8)
+        africa_cost, _ = estimate_sim_cost("Nairobi, Kenya", 8)
+        self.assertLess(asia_cost, africa_cost)
+
+    def test_scales_with_trip_length_up_to_cap(self):
+        short_cost, _ = estimate_sim_cost("Istanbul, Türkiye", 3)
+        long_cost, _ = estimate_sim_cost("Istanbul, Türkiye", 10)
+        self.assertLess(short_cost, long_cost)
+
+    def test_caps_at_fifteen_billed_days(self):
+        capped_cost, _ = estimate_sim_cost("Istanbul, Türkiye", 15)
+        over_cap_cost, _ = estimate_sim_cost("Istanbul, Türkiye", 40)
+        self.assertEqual(capped_cost, over_cap_cost)
+
+    def test_unresolvable_destination_uses_default_rate(self):
+        cost, detail = estimate_sim_cost("Some Made Up Place", 5)
+        self.assertEqual(cost, round(3.0 * 5))
+        self.assertIn("Standard", detail)
+
+
 class BuildPlanTests(unittest.TestCase):
     def test_people_and_nights(self):
         plan = build_plan(make_inputs(), make_clients())
@@ -98,6 +127,21 @@ class BuildPlanTests(unittest.TestCase):
         plan = build_plan(make_inputs(budget=100, travel_style="luxury"), make_clients())
         self.assertFalse(plan.within_budget)
         self.assertLess(plan.remaining, 0)
+
+    def test_live_esim_bundle_is_used_over_static_estimate(self):
+        clients = make_clients()
+        clients.esim.get_bundle = lambda destination, nights: EsimBundle(
+            name="esim_2GB_15D_TR_V2", description="2GB, 15 days", data_mb=2000,
+            unlimited=False, duration_days=15, price=2.1,
+        )
+        plan = build_plan(make_inputs(), clients)
+        self.assertEqual(plan.sim_cost, 2)
+        self.assertIn("2GB", [i.detail for i in plan.items if i.label == "SIM/eSIM"][0])
+
+    def test_no_live_bundle_falls_back_to_static_estimate(self):
+        plan = build_plan(make_inputs(destination="Istanbul, Türkiye"), make_clients())
+        expected_cost, _ = estimate_sim_cost("Istanbul, Türkiye", plan.nights)
+        self.assertEqual(plan.sim_cost, expected_cost)
 
 
 class OptimizeTests(unittest.TestCase):
