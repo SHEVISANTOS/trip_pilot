@@ -90,15 +90,24 @@ else:
 
 # Cache TTLs (seconds) for integration responses, per README section 5.
 CACHE_TTL_FLIGHTS_HOTELS = env.int("CACHE_TTL_FLIGHTS_HOTELS", default=6 * 60 * 60)
+# CACHE_TTL_VISA is unused: visa guidance is now a local CSV lookup (see
+# integrations/visa.py), not a network call, so there's nothing to cache —
+# kept in case a paid Timatic-style API replaces it later.
 CACHE_TTL_VISA = env.int("CACHE_TTL_VISA", default=7 * 24 * 60 * 60)
 CACHE_TTL_EXCHANGE_RATE = env.int("CACHE_TTL_EXCHANGE_RATE", default=60 * 60)
+CACHE_TTL_ATTRACTIONS = env.int("CACHE_TTL_ATTRACTIONS", default=24 * 60 * 60)
+CACHE_TTL_ESIM = env.int("CACHE_TTL_ESIM", default=6 * 60 * 60)
+# Distances don't change, so this can be cached far longer than pricing data.
+CACHE_TTL_MAPS = env.int("CACHE_TTL_MAPS", default=30 * 24 * 60 * 60)
 
-# Celery — declared but not required for local dev; integration clients are
-# called synchronously from views today (see integrations/base.py). Wire up a
-# real broker via CELERY_BROKER_URL once live API calls are slow enough to
-# need it.
-CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=REDIS_URL or "memory://")
-CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="cache+memory://")
+# Celery — trips.tasks.build_and_persist_plan_task runs the multi-provider
+# plan generation off the request thread. `or REDIS_URL` (not env()'s
+# `default=`) so CELERY_BROKER_URL/CELERY_RESULT_BACKEND=<empty> in .env
+# correctly falls through to REDIS_URL — django-environ doesn't do shell-style
+# ${REDIS_URL} expansion, so that syntax in .env would silently pass through
+# as a literal string.
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="") or REDIS_URL or "memory://"
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="") or REDIS_URL or "cache+memory://"
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=True)
 
 

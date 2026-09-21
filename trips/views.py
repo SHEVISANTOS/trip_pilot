@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from datetime import date
 
 from django.contrib import messages
@@ -8,19 +7,12 @@ from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
 
 from integrations.clients import IntegrationClients
-from pricing.budget import CURRENCY_SYMBOLS, TripInputs, build_plan, format_money
-from pricing.itinerary import build_itinerary
+from pricing.budget import CURRENCY_SYMBOLS, build_plan, format_money
 from pricing.optimizer import optimize as optimize_plan
 from trips.forms import TripRequestForm
-from trips.models import (
-    CHECKLIST_ITEMS,
-    BudgetBreakdown,
-    Itinerary,
-    ItineraryActivity,
-    ItineraryDay,
-    SavedTrip,
-    TripRequest,
-)
+from trips.models import CHECKLIST_ITEMS, SavedTrip, TripRequest
+from trips.services import inputs_from_trip_request, persist_plan
+from trips.tasks import build_and_persist_plan_task
 
 
 def _default_initial():
@@ -42,62 +34,6 @@ def _default_initial():
     }
 
 
-def _inputs_from_trip_request(trip_request: TripRequest) -> TripInputs:
-    return TripInputs(
-        departure=trip_request.departure,
-        destination=trip_request.destination,
-        nationality=trip_request.nationality,
-        adults=trip_request.adults,
-        children=trip_request.children,
-        start_date=trip_request.start_date,
-        end_date=trip_request.end_date,
-        travel_style=trip_request.travel_style,
-        hotel_preference=trip_request.hotel_preference,
-        currency=trip_request.currency,
-        budget=float(trip_request.budget),
-    )
-
-
-def _persist_plan(trip_request: TripRequest, plan):
-    BudgetBreakdown.objects.update_or_create(
-        trip_request=trip_request,
-        defaults=dict(
-            items=[asdict(item) for item in plan.items],
-            visa=asdict(plan.visa),
-            flights=[asdict(f) for f in plan.flights],
-            hotels=[asdict(h) for h in plan.hotels],
-            attractions=[asdict(a) for a in plan.attractions],
-            nights=plan.nights,
-            people=plan.people,
-            flight_cost=plan.flight_cost,
-            hotel_cost=plan.hotel_cost,
-            transfer_cost=plan.transfer_cost,
-            transport_cost=plan.transport_cost,
-            food_cost=plan.food_cost,
-            attractions_cost=plan.attractions_cost,
-            insurance_cost=plan.insurance_cost,
-            sim_cost=plan.sim_cost,
-            emergency_cost=plan.emergency_cost,
-            visa_cost=plan.visa_cost,
-            total=plan.total,
-            remaining=plan.remaining,
-            over_budget=not plan.within_budget,
-        ),
-    )
-    itinerary, _ = Itinerary.objects.get_or_create(trip_request=trip_request)
-    itinerary.days.all().delete()
-    for day_plan in build_itinerary(plan):
-        day = ItineraryDay.objects.create(
-            itinerary=itinerary, day_number=day_plan.day_number, title=day_plan.title
-        )
-        ItineraryActivity.objects.bulk_create(
-            [
-                ItineraryActivity(day=day, order=order, time=a.time, title=a.title, cost_display=a.cost_display)
-                for order, a in enumerate(day_plan.activities)
-            ]
-        )
-
-
 @ratelimit(key="ip", rate="20/h", block=True)
 def planner(request):
     if request.method == "POST":
@@ -107,8 +43,7 @@ def planner(request):
             if request.user.is_authenticated:
                 trip_request.created_by = request.user
             trip_request.save()
-            plan = build_plan(_inputs_from_trip_request(trip_request), IntegrationClients())
-            _persist_plan(trip_request, plan)
+            build_and_persist_plan_task.delay(trip_request.pk)
             return redirect("trips:results", pk=trip_request.pk)
     else:
         form = TripRequestForm(initial=_default_initial())
@@ -117,6 +52,11 @@ def planner(request):
 
 def results(request, pk):
     trip_request = get_object_or_404(TripRequest, pk=pk)
+    if not hasattr(trip_request, "budget_breakdown"):
+        # The plan hasn't been generated yet — only reachable with a real
+        # (non-eager) Celery worker, where build_and_persist_plan_task is
+        # still running in the background.
+        return render(request, "trips/pending.html", {"trip_request": trip_request})
     breakdown = trip_request.budget_breakdown
     itinerary = trip_request.itinerary
     is_saved = (
@@ -167,13 +107,13 @@ def results(request, pk):
 def optimize(request, pk):
     trip_request = get_object_or_404(TripRequest, pk=pk)
     clients = IntegrationClients()
-    plan = build_plan(_inputs_from_trip_request(trip_request), clients)
+    plan = build_plan(inputs_from_trip_request(trip_request), clients)
     optimized = optimize_plan(plan, clients)
     if optimized is not plan:
         trip_request.travel_style = optimized.inputs.travel_style
         trip_request.hotel_preference = optimized.inputs.hotel_preference
         trip_request.save(update_fields=["travel_style", "hotel_preference"])
-        _persist_plan(trip_request, optimized)
+        persist_plan(trip_request, optimized)
         messages.success(request, "Plan optimized for your budget.")
     else:
         remaining_display = format_money(plan.remaining, plan.inputs.currency)

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Generating your plan… — TripPilot AI{% endblock %}
+{% block extra_scripts %}
+<script>setTimeout(() => location.reload(), 3000)</script>
+{% endblock %}
+{% block content %}
+<section class="results">
+  <div class="panel full" style="text-align:center;padding:60px 20px">
+    <span class="eyebrow">ONE MOMENT</span>
+    <h2>Building your {{ trip_request.destination }} plan…</h2>
+    <p>Checking flights, hotels, visa requirements, eSIM pricing and exchange rates. This page refreshes automatically every few seconds.</p>
+  </div>
+</section>
+{% endblock %}

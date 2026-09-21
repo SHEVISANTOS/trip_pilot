@@ -53,5 +53,6 @@ class OpenTripMapClient(BaseClient):
             ]
 
         fallback = sample_data_for(destination).attractions
-        result = self.call("opentripmap", fetch, None)
+        cache_key = self.make_cache_key("opentripmap", destination)
+        result = self.call("opentripmap", fetch, None, cache_key, settings.CACHE_TTL_ATTRACTIONS)
         return result or fallback

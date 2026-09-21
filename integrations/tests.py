@@ -10,8 +10,14 @@ from integrations.maps import MapsClient
 from integrations.models import IntegrationCallLog
 from integrations.visa import PassportIndexVisaClient
 
+# Every client test runs against an isolated in-process cache rather than the
+# real REDIS_URL from .env — keeps tests hermetic (no network dependency, no
+# cross-test-run pollution) and fast, and avoids writing test data into a
+# real shared Redis instance.
+LOCMEM_CACHE = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
-@override_settings(AMADEUS_API_KEY="", AMADEUS_API_SECRET="")
+
+@override_settings(AMADEUS_API_KEY="", AMADEUS_API_SECRET="", CACHES=LOCMEM_CACHE)
 class AmadeusClientFallbackTests(TestCase):
     def test_unconfigured_flights_fall_back_to_fixture_and_logs_failure(self):
         client = AmadeusClient()
@@ -26,7 +32,7 @@ class AmadeusClientFallbackTests(TestCase):
         self.assertEqual(IntegrationCallLog.objects.filter(provider="amadeus_hotels", success=False).count(), 1)
 
 
-@override_settings(OPENTRIPMAP_API_KEY="")
+@override_settings(OPENTRIPMAP_API_KEY="", CACHES=LOCMEM_CACHE)
 class OpenTripMapClientFallbackTests(TestCase):
     def test_unconfigured_falls_back_to_fixture(self):
         client = OpenTripMapClient()
@@ -69,6 +75,7 @@ class PassportIndexVisaClientTests(TestCase):
         self.assertEqual(IntegrationCallLog.objects.filter(provider="visa", success=False).count(), 1)
 
 
+@override_settings(CACHES=LOCMEM_CACHE)
 class ExchangeRateClientTests(TestCase):
     def test_same_currency_short_circuits_to_rate_one(self):
         client = ExchangeRateClient()
@@ -77,7 +84,7 @@ class ExchangeRateClientTests(TestCase):
 
     @responses.activate
     def test_live_call_failure_falls_back_to_rate_one(self):
-        responses.add(responses.GET, "https://api.exchangerate.host/latest", status=500)
+        responses.add(responses.GET, "https://open.er-api.com/v6/latest/USD", status=500)
         client = ExchangeRateClient()
         result = client.get_rate("USD", "EUR")
         self.assertEqual(result.rate, 1.0)
@@ -87,7 +94,7 @@ class ExchangeRateClientTests(TestCase):
     def test_live_call_success_returns_real_rate(self):
         responses.add(
             responses.GET,
-            "https://api.exchangerate.host/latest",
+            "https://open.er-api.com/v6/latest/USD",
             json={"rates": {"EUR": 0.92}},
             status=200,
         )
@@ -96,13 +103,54 @@ class ExchangeRateClientTests(TestCase):
         self.assertEqual(result.rate, 0.92)
 
 
-@override_settings(GOOGLE_MAPS_API_KEY="")
+@override_settings(GOOGLE_MAPS_API_KEY="", CACHES=LOCMEM_CACHE)
 class MapsClientFallbackTests(TestCase):
     def test_unconfigured_falls_back_to_flat_estimate(self):
         client = MapsClient()
         result = client.estimate_transfer_cost("Airport", "Hotel")
-        self.assertEqual(result, 80.0)
+        self.assertEqual(result, 40.0)
         self.assertEqual(IntegrationCallLog.objects.filter(provider="maps", success=False).count(), 1)
+
+
+@override_settings(GOOGLE_MAPS_API_KEY="test-key", CACHES=LOCMEM_CACHE)
+class MapsClientTests(TestCase):
+    @responses.activate
+    def test_configured_success_returns_distance_based_estimate(self):
+        responses.add(
+            responses.POST,
+            "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix",
+            json=[{"originIndex": 0, "destinationIndex": 0, "distanceMeters": 25000, "condition": "ROUTE_EXISTS"}],
+            status=200,
+        )
+        client = MapsClient()
+        result = client.estimate_transfer_cost("Istanbul Airport", "Sultanahmet, Istanbul")
+        self.assertEqual(result, round(25.0 * 1.2, 2))
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="maps", success=True).count(), 1)
+
+    @responses.activate
+    def test_no_route_found_falls_back_to_flat_estimate(self):
+        responses.add(
+            responses.POST,
+            "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix",
+            json=[{"originIndex": 0, "destinationIndex": 0, "condition": "ROUTE_NOT_FOUND"}],
+            status=200,
+        )
+        client = MapsClient()
+        result = client.estimate_transfer_cost("Nowhere", "Nowhere Else")
+        self.assertEqual(result, 40.0)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="maps", success=False).count(), 1)
+
+    @responses.activate
+    def test_billing_disabled_error_falls_back_to_flat_estimate(self):
+        responses.add(
+            responses.POST,
+            "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix",
+            json=[{"error": {"code": 403, "status": "PERMISSION_DENIED"}}],
+            status=403,
+        )
+        client = MapsClient()
+        result = client.estimate_transfer_cost("Istanbul Airport", "Sultanahmet, Istanbul")
+        self.assertEqual(result, 40.0)
 
 
 def _esim_bundle(name, price, duration, group, data_amount=1000, unlimited=False):
@@ -131,7 +179,7 @@ SAMPLE_TR_BUNDLES = [
 ]
 
 
-@override_settings(ESIM_GO_API_KEY="")
+@override_settings(ESIM_GO_API_KEY="", CACHES=LOCMEM_CACHE)
 class EsimGoClientFallbackTests(TestCase):
     def test_unconfigured_returns_none_and_logs_failure(self):
         client = EsimGoClient()
@@ -140,7 +188,7 @@ class EsimGoClientFallbackTests(TestCase):
         self.assertEqual(IntegrationCallLog.objects.filter(provider="esim", success=False).count(), 1)
 
 
-@override_settings(ESIM_GO_API_KEY="test-key")
+@override_settings(ESIM_GO_API_KEY="test-key", CACHES=LOCMEM_CACHE)
 class EsimGoClientTests(TestCase):
     @responses.activate
     def test_unresolvable_destination_returns_none_without_calling_api(self):

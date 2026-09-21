@@ -5,7 +5,7 @@ import unittest
 from datetime import date
 from types import SimpleNamespace
 
-from integrations.dataclasses import Attraction, EsimBundle, FlightOffer, HotelOffer, VisaInfo
+from integrations.dataclasses import Attraction, EsimBundle, ExchangeRate, FlightOffer, HotelOffer, VisaInfo
 from pricing.budget import TripInputs, build_plan, calculate_nights, estimate_sim_cost
 from pricing.itinerary import build_itinerary
 from pricing.optimizer import optimize
@@ -41,9 +41,30 @@ class StubEsim:
         return None  # no live bundle -> build_plan() falls back to estimate_sim_cost()
 
 
+class StubMaps:
+    def estimate_transfer_cost(self, origin, destination):
+        return 40.0  # one-way; matches integrations.maps.MapsClient.FALLBACK_TRANSFER_COST
+
+
+class StubExchange:
+    """base==target -> 1.0, matching the real ExchangeRateClient's short
+    circuit, so every existing USD-default test is unaffected. Anything else
+    returns a distinguishable 0.9 for CurrencyConversionTests to check against.
+    """
+
+    def get_rate(self, base, target):
+        rate = 1.0 if base == target else 0.9
+        return ExchangeRate(base=base, target=target, rate=rate)
+
+
 def make_clients():
     return SimpleNamespace(
-        amadeus=StubAmadeus(), activities=StubActivities(), visa=StubVisa(), esim=StubEsim()
+        amadeus=StubAmadeus(),
+        activities=StubActivities(),
+        visa=StubVisa(),
+        esim=StubEsim(),
+        maps=StubMaps(),
+        exchange=StubExchange(),
     )
 
 
@@ -142,6 +163,31 @@ class BuildPlanTests(unittest.TestCase):
         plan = build_plan(make_inputs(destination="Istanbul, Türkiye"), make_clients())
         expected_cost, _ = estimate_sim_cost("Istanbul, Türkiye", plan.nights)
         self.assertEqual(plan.sim_cost, expected_cost)
+
+    def test_transfer_cost_is_double_the_one_way_maps_estimate(self):
+        plan = build_plan(make_inputs(travel_style="balanced"), make_clients())
+        # StubMaps returns 40.0 one-way; balanced style has multiplier 1.0.
+        self.assertEqual(plan.transfer_cost, round(40.0 * 2 * 1.0))
+
+
+class CurrencyConversionTests(unittest.TestCase):
+    def test_usd_is_unaffected_by_conversion(self):
+        plan = build_plan(make_inputs(currency="USD"), make_clients())
+        self.assertEqual(plan.exchange_rate, 1.0)
+
+    def test_non_usd_currency_scales_every_cost(self):
+        usd_plan = build_plan(make_inputs(currency="USD"), make_clients())
+        eur_plan = build_plan(make_inputs(currency="EUR"), make_clients())
+        self.assertEqual(eur_plan.exchange_rate, 0.9)
+        # Clean single-multiplication components convert exactly.
+        self.assertEqual(eur_plan.flight_cost, round(usd_plan.flight_cost * 0.9))
+        self.assertEqual(eur_plan.visa_cost, round(usd_plan.visa_cost * 0.9))
+        self.assertEqual(eur_plan.transfer_cost, round(usd_plan.transfer_cost * 0.9))
+
+    def test_raw_offer_prices_are_converted_for_display(self):
+        eur_plan = build_plan(make_inputs(currency="EUR"), make_clients())
+        # StubAmadeus's flight is priced at 1650 USD.
+        self.assertEqual(eur_plan.flights[0].price, round(1650 * 0.9, 2))
 
 
 class OptimizeTests(unittest.TestCase):

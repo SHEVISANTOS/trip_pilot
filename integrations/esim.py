@@ -64,4 +64,5 @@ class EsimGoClient(BaseClient):
                 price=float(best["price"]),
             )
 
-        return self.call("esim", fetch, None)
+        cache_key = self.make_cache_key("esim", destination, nights)
+        return self.call("esim", fetch, None, cache_key, settings.CACHE_TTL_ESIM)

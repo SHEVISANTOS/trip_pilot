@@ -55,7 +55,8 @@ class AmadeusClient(BaseClient):
             ] or None
 
         fallback = sample_data_for(destination).flights
-        result = self.call("amadeus_flights", fetch, None)
+        cache_key = self.make_cache_key("amadeus_flights", origin, destination, adults)
+        result = self.call("amadeus_flights", fetch, None, cache_key, settings.CACHE_TTL_FLIGHTS_HOTELS)
         return result or fallback
 
     def search_hotels(self, destination: str, nights: int, adults: int) -> list[HotelOffer]:
@@ -82,5 +83,6 @@ class AmadeusClient(BaseClient):
             ] or None
 
         fallback = sample_data_for(destination).hotels
-        result = self.call("amadeus_hotels", fetch, None)
+        cache_key = self.make_cache_key("amadeus_hotels", destination, nights, adults)
+        result = self.call("amadeus_hotels", fetch, None, cache_key, settings.CACHE_TTL_FLIGHTS_HOTELS)
         return result or fallback
