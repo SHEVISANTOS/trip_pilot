@@ -16,13 +16,14 @@ DEMO_VISA = VisaInfo(
     tag="VERIFY",
 )
 
+# Prices are per person, round trip — matching what Travelpayouts quotes.
 DEMO_FLIGHTS = [
     FlightOffer(
         airline="Turkish Airlines",
         route="DAR → IST → DAR",
         stops="1 stop",
         duration="Approx. 11–15 hrs each way",
-        price=1650,
+        price=550,
         label="Recommended",
     ),
     FlightOffer(
@@ -30,7 +31,7 @@ DEMO_FLIGHTS = [
         route="DAR → DOH → IST → DAR",
         stops="1 stop",
         duration="Approx. 13–17 hrs each way",
-        price=1480,
+        price=493,
         label="Cheapest",
     ),
     FlightOffer(
@@ -38,7 +39,7 @@ DEMO_FLIGHTS = [
         route="DAR → ADD → IST → DAR",
         stops="1 stop",
         duration="Approx. 12–16 hrs each way",
-        price=1540,
+        price=513,
         label="Alternative",
     ),
 ]

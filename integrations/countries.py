@@ -10,6 +10,9 @@ demonyms and continent region for all 250 ISO-3166 entries. Regenerate by
 re-running the generation steps in this file's git history if the upstream
 dataset changes.
 """
+import json
+from functools import lru_cache
+from pathlib import Path
 
 # A modest, non-exhaustive set of major destination cities, for when a user
 # types just a city with no country (e.g. "Istanbul" rather than "Istanbul,
@@ -124,6 +127,29 @@ CITY_HINTS = {
 }
 
 
+@lru_cache(maxsize=1)
+def _airport_cities() -> dict[str, str]:
+    """Lowercased city name -> country code, from the airport dataset in
+    data/airports.json. Read directly rather than imported from
+    integrations.travelpayouts, which imports this module.
+
+    Same-named cities collapse to whichever appears first; the curated
+    CITY_HINTS above is consulted before this, so the well-known ambiguous
+    ones (London, ...) are already pinned.
+    """
+    path = Path(__file__).resolve().parent / "data" / "airports.json"
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    index: dict[str, str] = {}
+    for record in records:
+        name, country = record.get("name"), record.get("country_code")
+        if name and country:
+            index.setdefault(name.casefold(), country)
+    return index
+
+
 def _normalize(text: str) -> str:
     return (text or "").strip().casefold()
 
@@ -134,8 +160,9 @@ def resolve_country(text: str) -> str | None:
     order: an exact alias match on each comma-separated segment (handles
     "City, Country"), a substring scan against known country names/aliases
     (longest match wins, to prefer "South Africa" over "Africa"-shaped
-    partial matches), then the CITY_HINTS table. Returns None if nothing
-    matches, so callers can fall back to illustrative demo data.
+    partial matches), the curated CITY_HINTS table, and finally the airport
+    city dataset (~3,500 cities). Returns None if nothing matches, so callers
+    can fall back to illustrative demo data.
     """
     normalized = _normalize(text)
     if not normalized:
@@ -156,6 +183,13 @@ def resolve_country(text: str) -> str | None:
 
     for city, code in CITY_HINTS.items():
         if city in normalized:
+            return code
+
+    # Last resort: the airport city dataset covers far more places than the
+    # curated hints above (this is what lets e.g. "Mwanza" resolve to TZ).
+    for segment in [normalized] + [s.strip() for s in normalized.split(",")]:
+        code = _airport_cities().get(segment)
+        if code:
             return code
 
     return None

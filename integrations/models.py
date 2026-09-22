@@ -3,13 +3,13 @@ from django.db import models
 
 class IntegrationCallLog(models.Model):
     PROVIDER_CHOICES = [
-        ("amadeus_flights", "Amadeus — Flights"),
-        ("amadeus_hotels", "Amadeus — Hotels"),
+        ("travelpayouts", "Travelpayouts — Flights"),
         ("opentripmap", "OpenTripMap — Attractions"),
         ("visa", "Visa guidance"),
         ("exchange_rate", "Exchange rate"),
         ("maps", "Maps / transfer estimate"),
         ("esim", "eSIM Go — Data bundles"),
+        ("hotels", "LiteAPI — Hotels"),
     ]
 
     provider = models.CharField(max_length=32, choices=PROVIDER_CHOICES)

@@ -11,7 +11,7 @@ from pricing.budget import CURRENCY_SYMBOLS, build_plan, format_money
 from pricing.optimizer import optimize as optimize_plan
 from trips.forms import TripRequestForm
 from trips.models import CHECKLIST_ITEMS, SavedTrip, TripRequest
-from trips.services import inputs_from_trip_request, persist_plan
+from trips.services import get_showcase_plan, inputs_from_trip_request, persist_plan, retry_stalled_plan_if_needed
 from trips.tasks import build_and_persist_plan_task
 
 
@@ -34,7 +34,7 @@ def _default_initial():
     }
 
 
-@ratelimit(key="ip", rate="20/h", block=True)
+@ratelimit(key="ip", rate="20/h", method="POST", block=True)
 def planner(request):
     if request.method == "POST":
         form = TripRequestForm(request.POST)
@@ -47,15 +47,17 @@ def planner(request):
             return redirect("trips:results", pk=trip_request.pk)
     else:
         form = TripRequestForm(initial=_default_initial())
-    return render(request, "trips/planner.html", {"form": form})
+    return render(request, "trips/planner.html", {"form": form, "showcase": get_showcase_plan()})
 
 
 def results(request, pk):
     trip_request = get_object_or_404(TripRequest, pk=pk)
     if not hasattr(trip_request, "budget_breakdown"):
-        # The plan hasn't been generated yet — only reachable with a real
-        # (non-eager) Celery worker, where build_and_persist_plan_task is
-        # still running in the background.
+        # Normally still generating (real non-eager worker) or, rarely, a
+        # stalled task with nothing left retrying it — retry_stalled_plan_if_needed
+        # re-triggers generation once the wait is longer than normal, so this
+        # page can't get stuck refreshing forever.
+        retry_stalled_plan_if_needed(trip_request)
         return render(request, "trips/pending.html", {"trip_request": trip_request})
     breakdown = trip_request.budget_breakdown
     itinerary = trip_request.itinerary

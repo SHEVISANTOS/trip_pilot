@@ -7,14 +7,16 @@
     <p>Get a complete travel plan with visa guidance, flights, hotels, transfers, food, attractions and a day-by-day itinerary.</p>
     <div class="pills"><span>🛂 Visa guidance</span><span>✈ Flight comparison</span><span>🏨 Hotels</span><span>📊 Budget optimizer</span></div>
   </div>
+  {% if showcase %}
   <div class="hero-card">
-    <div class="mini-row"><b>Destination</b><span>Türkiye 🇹🇷</span></div>
-    <div class="mini-row"><b>Budget</b><span>$5,000</span></div>
-    <div class="mini-row"><b>Trip cost</b><span class="good">$4,730</span></div>
-    <div class="mini-row"><b>Remaining</b><span class="good">$270</span></div>
-    <div class="progress"><i style="width:94.6%"></i></div>
-    <small>94.6% of budget allocated</small>
+    <div class="mini-row"><b>Destination</b><span>{{ showcase.destination }} {{ showcase.flag }}</span></div>
+    <div class="mini-row"><b>Budget</b><span>{{ showcase.budget }}</span></div>
+    <div class="mini-row"><b>Trip cost</b><span class="{% if showcase.within_budget %}good{% endif %}">{{ showcase.total }}</span></div>
+    <div class="mini-row"><b>Remaining</b><span class="{% if showcase.within_budget %}good{% endif %}">{{ showcase.remaining }}</span></div>
+    <div class="progress"><i style="width:{% if showcase.percent_used > 100 %}100{% else %}{{ showcase.percent_used }}{% endif %}%"></i></div>
+    <small>{{ showcase.percent_used }}% of budget allocated · {{ showcase.nights }} nights{% if showcase.airline %} · {{ showcase.airline }}{% endif %}</small>
   </div>
+  {% endif %}
 </section>
 
 <section id="planner" class="planner section">
@@ -39,7 +41,6 @@
     {% endif %}
     <div class="wide form-actions"><button class="primary" type="submit">✨ Create My Travel Plan</button></div>
   </form>
-  <p class="disclaimer">Estimated data: live prices and visa details connect through the integrations layer when API keys are configured, and fall back to illustrative estimates otherwise. Verify before booking.</p>
 </section>
 
 <section id="how" class="how section">

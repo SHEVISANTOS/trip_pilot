@@ -6,17 +6,28 @@ from datetime import date
 from types import SimpleNamespace
 
 from integrations.dataclasses import Attraction, EsimBundle, ExchangeRate, FlightOffer, HotelOffer, VisaInfo
-from pricing.budget import TripInputs, build_plan, calculate_nights, estimate_sim_cost
+from pricing.budget import (
+    COST_OF_LIVING_MAX,
+    COST_OF_LIVING_MIN,
+    TripInputs,
+    build_plan,
+    calculate_nights,
+    cost_of_living_index,
+    estimate_flights,
+    estimate_hotels,
+    estimate_sim_cost,
+)
 from pricing.itinerary import build_itinerary
 from pricing.optimizer import optimize
 
 
-class StubAmadeus:
-    def search_flights(self, origin, destination, adults):
-        return [FlightOffer("Test Air", f"{origin} → {destination}", "1 stop", "10 hrs", 1650, "Recommended")]
+class StubFlights:
+    """Mirrors TravelpayoutsClient: per-person round-trip price, and returns
+    None when it has nothing (build_plan then uses the fixture flights).
+    """
 
-    def search_hotels(self, destination, nights, adults):
-        return [HotelOffer("Test Hotel", "Centre", "4★", 135, 1200, "Central.")]
+    def search_flights(self, origin, destination, adults, start_date=None, end_date=None):
+        return [FlightOffer("Test Air", f"{origin} → {destination}", "1 stop", "10 hrs", 550, "Cheapest")]
 
 
 class StubActivities:
@@ -34,6 +45,15 @@ class StubActivities:
 class StubVisa:
     def get_visa_info(self, nationality, destination):
         return VisaInfo("Tourist entry requirement", "Verify before departure.", "Check stay length", 60, "VERIFY")
+
+
+class StubHotels:
+    """Mirrors LiteApiHotelClient; None means no live inventory, so
+    build_plan() falls back to estimate_hotels().
+    """
+
+    def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3):
+        return None
 
 
 class StubEsim:
@@ -59,10 +79,11 @@ class StubExchange:
 
 def make_clients():
     return SimpleNamespace(
-        amadeus=StubAmadeus(),
+        flights=StubFlights(),
         activities=StubActivities(),
         visa=StubVisa(),
         esim=StubEsim(),
+        hotels=StubHotels(),
         maps=StubMaps(),
         exchange=StubExchange(),
     )
@@ -169,6 +190,143 @@ class BuildPlanTests(unittest.TestCase):
         # StubMaps returns 40.0 one-way; balanced style has multiplier 1.0.
         self.assertEqual(plan.transfer_cost, round(40.0 * 2 * 1.0))
 
+    def test_food_and_transport_scale_with_the_actual_hotel_rate(self):
+        cheap_clients = make_clients()
+        cheap_clients.hotels.search_hotels = lambda *a, **kw: [
+            HotelOffer("Cheap Hotel", "Centre", "3★", 40.0, 320.0, "")
+        ]
+        pricey_clients = make_clients()
+        pricey_clients.hotels.search_hotels = lambda *a, **kw: [
+            HotelOffer("Pricey Hotel", "Centre", "5★", 250.0, 2000.0, "")
+        ]
+        cheap_plan = build_plan(make_inputs(), cheap_clients)
+        pricey_plan = build_plan(make_inputs(), pricey_clients)
+        self.assertLess(cheap_plan.food_cost, pricey_plan.food_cost)
+        self.assertLess(cheap_plan.transport_cost, pricey_plan.transport_cost)
+        self.assertIn("cost-of-living", [i.detail for i in cheap_plan.items if i.label == "Food"][0])
+
+
+class CostOfLivingIndexTests(unittest.TestCase):
+    def test_baseline_rate_gives_index_of_one(self):
+        hotels = [HotelOffer("H", "A", "4★", 100.0, 800.0, "")]
+        self.assertEqual(cost_of_living_index(hotels), 1.0)
+
+    def test_expensive_hotels_raise_the_index(self):
+        hotels = [HotelOffer("H", "A", "5★", 200.0, 1600.0, "")]
+        self.assertEqual(cost_of_living_index(hotels), 2.0)
+
+    def test_cheap_hotels_lower_the_index(self):
+        hotels = [HotelOffer("H", "A", "3★", 50.0, 400.0, "")]
+        self.assertEqual(cost_of_living_index(hotels), 0.5)
+
+    def test_averages_across_multiple_hotels(self):
+        hotels = [
+            HotelOffer("A", "X", "5★", 200.0, 1600.0, ""),
+            HotelOffer("B", "X", "3★", 40.0, 320.0, ""),
+        ]
+        self.assertEqual(cost_of_living_index(hotels), 1.2)  # avg 120 / 100
+
+    def test_clamps_extreme_rates(self):
+        very_cheap = [HotelOffer("H", "A", "1★", 5.0, 40.0, "")]
+        very_expensive = [HotelOffer("H", "A", "5★", 5000.0, 40000.0, "")]
+        self.assertEqual(cost_of_living_index(very_cheap), COST_OF_LIVING_MIN)
+        self.assertEqual(cost_of_living_index(very_expensive), COST_OF_LIVING_MAX)
+
+    def test_no_hotels_defaults_to_one(self):
+        self.assertEqual(cost_of_living_index([]), 1.0)
+
+
+class EstimateHotelsTests(unittest.TestCase):
+    def test_rates_are_region_calibrated(self):
+        asia = estimate_hotels("Istanbul, Türkiye", 8)
+        europe = estimate_hotels("Paris, France", 8)
+        self.assertLess(asia[0].night, europe[0].night)
+
+    def test_tiers_descend_and_total_matches_nights(self):
+        hotels = estimate_hotels("Nairobi, Kenya", 5)
+        self.assertGreater(hotels[0].night, hotels[1].night)
+        self.assertGreater(hotels[1].night, hotels[2].night)
+        self.assertEqual(hotels[0].total, round(hotels[0].night * 5, 2))
+
+    def test_live_rates_are_preferred_over_the_estimate(self):
+        clients = make_clients()
+        clients.hotels.search_hotels = lambda *a, **kw: [
+            HotelOffer("Sura Hagia Sophia Hotel", "Istanbul", "5★", 80.23, 641.84, "Sultanahmet"),
+        ]
+        plan = build_plan(make_inputs(), clients)
+        self.assertEqual(plan.hotels[0].name, "Sura Hagia Sophia Hotel")
+        self.assertEqual(plan.hotel_cost, round(80.23 * 8))
+
+    def test_no_live_inventory_falls_back_to_generic_bands(self):
+        plan = build_plan(make_inputs(destination="Zanzibar"), make_clients())
+        self.assertIn("Mid-range hotel", plan.hotels[0].name)
+
+    def test_labels_are_honest_tiers_not_invented_hotel_names(self):
+        hotels = estimate_hotels("Tunisia", 8)
+        # Must not fabricate listings like "Tunisia Central Hotel".
+        for hotel in hotels:
+            self.assertNotIn("Tunisia", hotel.name)
+        self.assertIn("Mid-range", hotels[0].name)
+        self.assertEqual(hotels[0].area, "Tunisia")
+
+
+class EstimateFlightsTests(unittest.TestCase):
+    def test_estimate_is_distance_based_and_labelled(self):
+        short = estimate_flights("London", "Paris")[0]
+        long_haul = estimate_flights("New York", "Mwanza")[0]
+        self.assertLess(short.price, long_haul.price)
+        self.assertEqual(short.label, "Estimate")
+        self.assertEqual(short.airline, "Estimated fare")
+
+    def test_route_uses_resolved_iata_codes(self):
+        offer = estimate_flights("Dar es Salaam", "Istanbul, Türkiye")[0]
+        self.assertEqual(offer.route, "DAR → IST → DAR")
+
+    def test_country_destination_resolves_via_capital(self):
+        offer = estimate_flights("Cairo", "Tunisia")[0]
+        self.assertEqual(offer.route, "CAI → TUN → CAI")
+
+    def test_unlocatable_route_returns_none(self):
+        self.assertIsNone(estimate_flights("Atlantis", "Shangri-La"))
+
+    def test_within_a_sane_band_of_observed_real_fares(self):
+        # Observed live: CAI->TUN $455, DAR->IST $756. The estimator only has
+        # to be in the right ballpark, not exact.
+        for dep, dest, real in [("Cairo", "Tunisia", 455), ("Dar es Salaam", "Istanbul", 756)]:
+            price = estimate_flights(dep, dest)[0].price
+            self.assertGreater(price, real * 0.5)
+            self.assertLess(price, real * 2.0)
+
+
+class FlightFallbackTests(unittest.TestCase):
+    def test_live_flights_are_used_when_available(self):
+        plan = build_plan(make_inputs(), make_clients())
+        self.assertEqual(plan.flights[0].airline, "Test Air")
+        # 550/person * 3 people * 1.0 style multiplier
+        self.assertEqual(plan.flight_cost, 1650)
+
+    def test_no_cached_fare_falls_back_to_a_distance_estimate(self):
+        clients = make_clients()
+        clients.flights.search_flights = lambda *a, **kw: None
+        plan = build_plan(make_inputs(), clients)
+        # Tier 2: a real, route-specific estimate — not the fixture airline.
+        self.assertEqual(plan.flights[0].airline, "Estimated fare")
+        self.assertEqual(plan.flights[0].route, "DAR → IST → DAR")
+        self.assertGreater(plan.flight_cost, 0)
+
+    def test_unlocatable_route_falls_back_to_fixture_flights(self):
+        clients = make_clients()
+        clients.flights.search_flights = lambda *a, **kw: None
+        plan = build_plan(make_inputs(departure="Atlantis", destination="Shangri-La"), clients)
+        # Tier 3: nothing resolvable, so the illustrative fixtures stand in.
+        self.assertEqual(plan.flights[0].airline, "Turkish Airlines")
+        self.assertEqual(plan.flight_cost, 550 * 3)
+
+    def test_flight_cost_scales_with_party_size(self):
+        solo = build_plan(make_inputs(adults=1, children=0), make_clients())
+        family = build_plan(make_inputs(adults=2, children=2), make_clients())
+        self.assertEqual(family.flight_cost, solo.flight_cost * 4)
+
 
 class CurrencyConversionTests(unittest.TestCase):
     def test_usd_is_unaffected_by_conversion(self):
@@ -186,8 +344,8 @@ class CurrencyConversionTests(unittest.TestCase):
 
     def test_raw_offer_prices_are_converted_for_display(self):
         eur_plan = build_plan(make_inputs(currency="EUR"), make_clients())
-        # StubAmadeus's flight is priced at 1650 USD.
-        self.assertEqual(eur_plan.flights[0].price, round(1650 * 0.9, 2))
+        # StubFlights quotes 550 USD per person.
+        self.assertEqual(eur_plan.flights[0].price, round(550 * 0.9, 2))
 
 
 class OptimizeTests(unittest.TestCase):

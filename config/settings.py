@@ -82,7 +82,17 @@ if REDIS_URL:
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
             "LOCATION": REDIS_URL,
-            "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                # A Redis outage/DNS blip must degrade to "cache miss", never
+                # crash the request. integrations/base.py's cache.get() calls
+                # sit outside any try/except (a miss is meant to be cheap and
+                # unconditional), and django-ratelimit's counter reads go
+                # through this same cache — without this, either one takes
+                # the whole site down the moment Redis is unreachable, which
+                # is exactly what happened here (ConnectionError on POST /).
+                "IGNORE_EXCEPTIONS": True,
+            },
         }
     }
 else:
@@ -97,6 +107,8 @@ CACHE_TTL_VISA = env.int("CACHE_TTL_VISA", default=7 * 24 * 60 * 60)
 CACHE_TTL_EXCHANGE_RATE = env.int("CACHE_TTL_EXCHANGE_RATE", default=60 * 60)
 CACHE_TTL_ATTRACTIONS = env.int("CACHE_TTL_ATTRACTIONS", default=24 * 60 * 60)
 CACHE_TTL_ESIM = env.int("CACHE_TTL_ESIM", default=6 * 60 * 60)
+# Hotel *names* from OSM change rarely, so this can be cached for a week.
+CACHE_TTL_HOTELS = env.int("CACHE_TTL_HOTELS", default=7 * 24 * 60 * 60)
 # Distances don't change, so this can be cached far longer than pricing data.
 CACHE_TTL_MAPS = env.int("CACHE_TTL_MAPS", default=30 * 24 * 60 * 60)
 
@@ -145,12 +157,12 @@ LOGOUT_REDIRECT_URL = "trips:planner"
 # External API credentials — all optional; every integrations/*.py client
 # falls back to illustrative demo data when its key(s) are missing.
 
-AMADEUS_API_KEY = env("AMADEUS_API_KEY", default="")
-AMADEUS_API_SECRET = env("AMADEUS_API_SECRET", default="")
+TRAVELPAYOUTS_TOKEN = env("TRAVELPAYOUTS_TOKEN", default="")
 OPENTRIPMAP_API_KEY = env("OPENTRIPMAP_API_KEY", default="")
 GOOGLE_MAPS_API_KEY = env("GOOGLE_MAPS_API_KEY", default="")
 SAFETYWING_API_KEY = env("SAFETYWING_API_KEY", default="")
 ESIM_GO_API_KEY = env("ESIM_GO_API_KEY", default="")
+LITEAPI_KEY = env("LITEAPI_KEY", default="")
 
 # Visa guidance: no key needed — backed by the open, MIT-licensed Passport
 # Index dataset vendored at integrations/data/passport_index_visa.csv
@@ -164,6 +176,15 @@ VISA_DATASET_PATH = env("VISA_DATASET_PATH", default="") or str(
 
 # Rate limiting (django-ratelimit) for the planner endpoint.
 RATELIMIT_ENABLE = env.bool("RATELIMIT_ENABLE", default=True)
+# django-ratelimit's own default is to fail *closed*: if it can't read its
+# counter (e.g. the Redis outage that motivated this setting), it blocks the
+# request rather than risk letting an unlimited burst through. That's the
+# right default for a limiter guarding something dangerous, but every
+# integration client here already has its own independent fallback — a
+# Redis blip doesn't touch Travelpayouts/LiteAPI/etc, it only means caching
+# and rate-limiting are briefly unavailable. Failing open keeps the planner
+# usable during that window instead of a blanket 403 on every submission.
+RATELIMIT_FAIL_OPEN = env.bool("RATELIMIT_FAIL_OPEN", default=True)
 
 if not REDIS_URL:
     # LocMemCache isn't a shared cache, so it's not officially supported by
