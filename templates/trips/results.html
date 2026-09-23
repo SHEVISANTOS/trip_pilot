@@ -70,7 +70,7 @@
         <div><span class="tag {% if forloop.first %}green{% endif %}">{{ flight.label }}</span><h4>{{ flight.airline }}</h4></div>
         <div class="route"><b>{{ flight.route }}</b>{{ flight.stops }} • {{ flight.duration }}</div>
         <div><small>Estimated total</small><div class="price">{{ flight.display_price|money:trip_request.currency }}</div></div>
-        <button class="primary" type="button" data-book="{{ flight.airline }} flight">View / Book</button>
+        <a class="primary" href="{{ flight.booking_url }}" target="_blank" rel="noopener">View / Book</a>
       </div>
     {% endfor %}
     </div>
@@ -87,7 +87,7 @@
         <p>{{ hotel.desc }}</p>
         <div class="card-price">{{ hotel.display_total|money:trip_request.currency }} <small>total</small></div>
         <p>Approx. {{ hotel.per_night|money:trip_request.currency }}/night • {{ breakdown.nights }} nights</p>
-        <button class="primary" type="button" data-book="{{ hotel.name }} hotel">View / Book</button>
+        <a class="primary" href="{{ hotel.booking_url }}" target="_blank" rel="noopener">View / Book</a>
       </div>
     {% endfor %}
     </div>
@@ -124,7 +124,7 @@
         <h4>{{ attraction.name }}</h4>
         <p>{{ attraction.desc }}</p>
         <div class="card-price">{{ attraction.display_cost|money:trip_request.currency }}</div>
-        <button class="secondary" type="button" data-book="{{ attraction.name }} activity">View / Book</button>
+        <a class="secondary" href="{{ attraction.booking_url }}" target="_blank" rel="noopener">View / Book</a>
       </div>
     {% endfor %}
     </div>
@@ -162,5 +162,26 @@
     {% endif %}
     </div>
   </section>
+
+  <div class="trip-banner">
+    <div>
+      <span class="eyebrow">DONE REVIEWING?</span>
+      <h2>Save this trip</h2>
+      <p>Keep it in your dashboard and pick up right where you left off.</p>
+    </div>
+    <div>
+      {% if user.is_authenticated and not is_saved %}
+      <form method="post" action="{% url 'trips:save_trip' trip_request.pk %}" style="display:inline">
+        {% csrf_token %}
+        <button class="secondary" type="submit">☆ Save trip</button>
+      </form>
+      {% elif is_saved %}
+        <span class="tag green">SAVED</span>
+        <a class="link-btn" href="{% url 'pdfexport:export' saved_trip.pk %}">⬇ Download PDF</a>
+      {% else %}
+        <a class="link-btn" href="{% url 'accounts:login' %}">Log in to save this trip</a>
+      {% endif %}
+    </div>
+  </div>
 </section>
 {% endblock %}

@@ -15,7 +15,7 @@ environ.Env.read_env(BASE_DIR / ".env")
 
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-dev-only-change-me")
 DEBUG = env("DEBUG")
-ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1" , "192.168.1.207"])
 
 
 # Application definition
@@ -111,6 +111,9 @@ CACHE_TTL_ESIM = env.int("CACHE_TTL_ESIM", default=6 * 60 * 60)
 CACHE_TTL_HOTELS = env.int("CACHE_TTL_HOTELS", default=7 * 24 * 60 * 60)
 # Distances don't change, so this can be cached far longer than pricing data.
 CACHE_TTL_MAPS = env.int("CACHE_TTL_MAPS", default=30 * 24 * 60 * 60)
+# Much longer than CACHE_TTL_FLIGHTS_HOTELS — SerpApi's 100/month cap makes
+# quota, not freshness, the binding constraint here.
+CACHE_TTL_SERPAPI = env.int("CACHE_TTL_SERPAPI", default=24 * 60 * 60)
 
 # Celery — trips.tasks.build_and_persist_plan_task runs the multi-provider
 # plan generation off the request thread. `or REDIS_URL` (not env()'s
@@ -163,6 +166,14 @@ GOOGLE_MAPS_API_KEY = env("GOOGLE_MAPS_API_KEY", default="")
 SAFETYWING_API_KEY = env("SAFETYWING_API_KEY", default="")
 ESIM_GO_API_KEY = env("ESIM_GO_API_KEY", default="")
 LITEAPI_KEY = env("LITEAPI_KEY", default="")
+STAYAPI_KEY = env("STAYAPI_KEY", default="")
+# SerpApi (real Google Flights / Google Hotels / Google Search results) — a
+# second live tier for flights and hotels, and a link upgrade for
+# attractions. Free tier is a hard 100 searches/month shared across all
+# three, so every SerpApi call is cached far longer than the other providers
+# (CACHE_TTL_SERPAPI below) and only reached when the primary source above it
+# in the cascade has nothing.
+SERPAPI_KEY = env("SERPAPI_KEY", default="")
 
 # Visa guidance: no key needed — backed by the open, MIT-licensed Passport
 # Index dataset vendored at integrations/data/passport_index_visa.csv

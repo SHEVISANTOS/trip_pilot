@@ -167,6 +167,7 @@ class TravelpayoutsClient(BaseClient):
         for i, row in enumerate(rows[:3]):
             code = row.get("airline", "")
             transfers = row.get("transfers", 0)
+            link = row.get("link") or ""
             offers.append(
                 FlightOffer(
                     airline=airlines.get(code, code or "Airline"),
@@ -176,6 +177,10 @@ class TravelpayoutsClient(BaseClient):
                     # Travelpayouts quotes per-person round-trip fares.
                     price=float(row["price"]),
                     label=FLIGHT_LABELS[i] if i < len(FLIGHT_LABELS) else "Alternative",
+                    # `link` is relative; Aviasales is the same company/site
+                    # Travelpayouts quotes for — verified this resolves to
+                    # the exact real results page for this itinerary.
+                    booking_url=f"https://www.aviasales.com{link}" if link else "",
                 )
             )
         return offers

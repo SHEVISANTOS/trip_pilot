@@ -10,6 +10,7 @@ class IntegrationCallLog(models.Model):
         ("maps", "Maps / transfer estimate"),
         ("esim", "eSIM Go — Data bundles"),
         ("hotels", "LiteAPI — Hotels"),
+        ("hotels_stayapi", "StayAPI — Hotels (tier 2)"),
     ]
 
     provider = models.CharField(max_length=32, choices=PROVIDER_CHOICES)

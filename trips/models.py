@@ -14,11 +14,14 @@ PURPOSE_CHOICES = [
     ("Honeymoon", "Honeymoon"),
 ]
 
+# Stored value stays plain text (pricing.optimizer.CHEAPEST_HOTEL_PREFERENCE
+# and existing TripRequest rows match on it) — only the display label shown
+# in the dropdown uses ★ symbols.
 ACCOMMODATION_CHOICES = [
-    ("3–4 Star Hotel", "3–4 Star Hotel"),
+    ("3–4 Star Hotel", "★★★–★★★★ Hotel"),
     ("Apartment", "Apartment"),
-    ("Resort", "Resort"),
-    ("Luxury Hotel", "Luxury Hotel"),
+    ("Resort", "★★★★ Resort"),
+    ("Luxury Hotel", "★★★★★ Luxury Hotel"),
 ]
 
 CURRENCY_CHOICES = [

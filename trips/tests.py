@@ -62,6 +62,40 @@ class TripRequestFormTests(TestCase):
         )
         self.assertFalse(form.is_valid())
 
+    def test_return_date_same_as_departure_is_rejected(self):
+        start = date.today() + timedelta(days=200)
+        form = TripRequestForm(data=trip_form_data(start_date=start.isoformat(), end_date=start.isoformat()))
+        self.assertFalse(form.is_valid())
+
+    def test_departure_date_in_the_past_is_rejected(self):
+        past = date.today() - timedelta(days=1)
+        form = TripRequestForm(
+            data=trip_form_data(start_date=past.isoformat(), end_date=(past + timedelta(days=8)).isoformat())
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("Departure date can't be in the past.", form.errors["__all__"])
+
+    def test_return_date_in_the_past_is_rejected(self):
+        # Both dates in the past also trips the departure-date check, so use
+        # a departure of today with a return date before it.
+        past = date.today() - timedelta(days=1)
+        form = TripRequestForm(data=trip_form_data(start_date=date.today().isoformat(), end_date=past.isoformat()))
+        self.assertFalse(form.is_valid())
+        self.assertIn("Return date can't be in the past.", form.errors["__all__"])
+
+    def test_todays_date_is_accepted_as_departure(self):
+        today = date.today()
+        form = TripRequestForm(
+            data=trip_form_data(start_date=today.isoformat(), end_date=(today + timedelta(days=8)).isoformat())
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_date_widgets_advertise_todays_date_as_the_minimum(self):
+        form = TripRequestForm()
+        today = date.today().isoformat()
+        self.assertEqual(form.fields["start_date"].widget.attrs["min"], today)
+        self.assertEqual(form.fields["end_date"].widget.attrs["min"], today)
+
 
 @override_settings(CACHES=LOCMEM_CACHE)
 class PlannerViewTests(TestCase):

@@ -9,6 +9,11 @@ class FlightOffer:
     duration: str
     price: float
     label: str = "Alternative"
+    # Real deep link when the provider gives one (Travelpayouts always does);
+    # pricing.budget fills in a search-engine fallback otherwise, so this is
+    # never empty by the time a plan is persisted — "View / Book" always
+    # goes somewhere real, never a dead modal.
+    booking_url: str = ""
 
 
 @dataclass
@@ -19,6 +24,7 @@ class HotelOffer:
     night: float
     total: float
     desc: str
+    booking_url: str = ""
 
 
 @dataclass
@@ -27,6 +33,7 @@ class Attraction:
     cost: float
     desc: str
     optional: bool = False
+    booking_url: str = ""
 
 
 @dataclass

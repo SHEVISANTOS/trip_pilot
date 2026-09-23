@@ -71,6 +71,21 @@ def describe(kinds: str) -> str:
     return f"{primary.capitalize()} in the area (OpenTripMap)."
 
 
+def _place_url(props: dict) -> str:
+    """A real, always-resolvable link for this place — Wikidata (richest,
+    has a description and usually a Wikipedia link out) when tagged, OSM's
+    own page (shows the exact location) otherwise. No extra API call either
+    way: both fields already come back on the radius search.
+    """
+    wikidata = props.get("wikidata")
+    if wikidata:
+        return f"https://www.wikidata.org/wiki/{wikidata}"
+    osm = props.get("osm")
+    if osm:
+        return f"https://www.openstreetmap.org/{osm}"
+    return ""
+
+
 class OpenTripMapClient(BaseClient):
     def search_attractions(self, destination: str) -> list[Attraction]:
         def fetch():
@@ -115,7 +130,8 @@ class OpenTripMapClient(BaseClient):
                 if any(excluded in kinds for excluded in EXCLUDED_KINDS):
                     continue
                 seen.add(name.casefold())
-                scored.append((float(props.get("rate") or 0), kinds, name))
+                url = _place_url(props)
+                scored.append((float(props.get("rate") or 0), kinds, name, url))
 
             if not scored:
                 return None
@@ -128,7 +144,7 @@ class OpenTripMapClient(BaseClient):
             # churches. Limit each category so the day plan has variety.
             per_category: dict[str, int] = {}
             attractions = []
-            for _, kinds, name in scored:
+            for _, kinds, name, url in scored:
                 category = (kinds.split(",") or ["other"])[0]
                 if per_category.get(category, 0) >= MAX_PER_CATEGORY:
                     continue
@@ -139,6 +155,7 @@ class OpenTripMapClient(BaseClient):
                         cost=estimate_entry_cost(kinds),
                         desc=describe(kinds),
                         optional=False,
+                        booking_url=url,
                     )
                 )
                 if len(attractions) == 6:

@@ -1,5 +1,3 @@
-from datetime import date
-
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
@@ -15,25 +13,6 @@ from trips.services import get_showcase_plan, inputs_from_trip_request, persist_
 from trips.tasks import build_and_persist_plan_task
 
 
-def _default_initial():
-    next_year = date.today().year + 1
-    return {
-        "departure": "Dar es Salaam",
-        "destination": "Istanbul, Türkiye",
-        "nationality": "Tanzanian",
-        "purpose": "Holiday",
-        "start_date": date(next_year, 5, 10),
-        "end_date": date(next_year, 5, 18),
-        "adults": 2,
-        "children": 1,
-        "travel_style": "balanced",
-        "hotel_preference": "3–4 Star Hotel",
-        "interests": "History, food, sightseeing",
-        "currency": "USD",
-        "budget": 5000,
-    }
-
-
 @ratelimit(key="ip", rate="20/h", method="POST", block=True)
 def planner(request):
     if request.method == "POST":
@@ -46,7 +25,7 @@ def planner(request):
             build_and_persist_plan_task.delay(trip_request.pk)
             return redirect("trips:results", pk=trip_request.pk)
     else:
-        form = TripRequestForm(initial=_default_initial())
+        form = TripRequestForm()
     return render(request, "trips/planner.html", {"form": form, "showcase": get_showcase_plan()})
 
 

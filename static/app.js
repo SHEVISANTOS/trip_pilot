@@ -1,28 +1,11 @@
 // Progressive enhancement only — planning, budgeting and itinerary rendering
-// now happen server-side (trips/views.py). This just keeps the booking
-// modal and the live currency-symbol swap on the planner form.
+// now happen server-side (trips/views.py). This just keeps the unsaved-trip
+// checklist and the live currency-symbol swap on the planner form working.
+// "View / Book" buttons are plain <a href> links straight to the real
+// supplier now, so they need no JS.
 const $ = (id) => document.getElementById(id);
 
-function openModal(title, text) {
-  const modal = $('modal');
-  if (!modal) return;
-  $('modalTitle').textContent = title;
-  $('modalText').textContent = text;
-  modal.classList.remove('hidden');
-}
-
 document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('[data-book]').forEach((b) => {
-    b.addEventListener('click', () =>
-      openModal('Booking: ' + b.dataset.book, 'This action is ready to connect to a live booking partner or provider.')
-    );
-  });
-
-  const closeBtn = $('closeModal');
-  const okBtn = $('modalOk');
-  if (closeBtn) closeBtn.onclick = () => $('modal').classList.add('hidden');
-  if (okBtn) okBtn.onclick = () => $('modal').classList.add('hidden');
-
   // Unsaved-trip checklist: purely visual, no persistence — matches the
   // original prototype. Saved trips instead POST to toggle_checklist and
   // render as <button> elements (see trips/results.html), so this only

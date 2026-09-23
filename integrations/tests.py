@@ -11,8 +11,15 @@ from integrations.esim import EsimGoClient
 from integrations.exchange import ExchangeRateClient
 from integrations.fixtures import sample_data_for
 from integrations.hotels import LiteApiHotelClient
+from integrations.stayapi import StayApiHotelClient
 from integrations.maps import MapsClient
 from integrations.models import IntegrationCallLog
+from integrations.serpapi import (
+    SerpApiAttractionsClient,
+    SerpApiFlightsClient,
+    SerpApiHotelsClient,
+    SerpApiSearchClient,
+)
 from integrations.travelpayouts import TravelpayoutsClient, resolve_iata
 from integrations.visa import PassportIndexVisaClient
 
@@ -84,8 +91,8 @@ GEOCODE_URL = "https://nominatim.openstreetmap.org/search"
 OSRM_ANY = re.compile(r"https://router\.project-osrm\.org/route/v1/driving/.*")
 
 
-def tp_row(airline="TK", price=756, transfers=1, duration_to=655):
-    return {
+def tp_row(airline="TK", price=756, transfers=1, duration_to=655, link=None):
+    row = {
         "flight_number": "1234",
         "origin": "DAR",
         "destination": "IST",
@@ -98,6 +105,9 @@ def tp_row(airline="TK", price=756, transfers=1, duration_to=655):
         "transfers": transfers,
         "duration_to": duration_to,
     }
+    if link is not None:
+        row["link"] = link
+    return row
 
 
 class ResolveIataTests(TestCase):
@@ -144,6 +154,18 @@ class TravelpayoutsClientTests(CacheIsolatedTestCase):
         self.assertEqual(offer.stops, "1 stop")
         self.assertIn("10h", offer.duration)
         self.assertEqual(offer.label, "Cheapest")
+
+    @responses.activate
+    def test_relative_link_becomes_a_real_aviasales_booking_url(self):
+        responses.add(responses.GET, TP_URL, json={"data": [tp_row(link="/searches/DAR1005IST1805?...")]}, status=200)
+        offers = TravelpayoutsClient().search_flights("Dar es Salaam", "Istanbul, Türkiye", 1)
+        self.assertEqual(offers[0].booking_url, "https://www.aviasales.com/searches/DAR1005IST1805?...")
+
+    @responses.activate
+    def test_missing_link_leaves_booking_url_empty(self):
+        responses.add(responses.GET, TP_URL, json={"data": [tp_row()]}, status=200)
+        offers = TravelpayoutsClient().search_flights("Dar es Salaam", "Istanbul, Türkiye", 1)
+        self.assertEqual(offers[0].booking_url, "")
 
     @responses.activate
     def test_direct_flight_is_labelled_direct(self):
@@ -485,12 +507,170 @@ class LiteApiHotelClientTests(CacheIsolatedTestCase):
         self.assertEqual(IntegrationCallLog.objects.filter(provider="hotels", success=False).count(), 1)
 
 
+STAYAPI_LOOKUP_URL = "https://api.stayapi.com/v1/booking/destinations/lookup"
+STAYAPI_SEARCH_URL = "https://api.stayapi.com/v1/booking/search"
+
+
+def stayapi_lookup_payload(dest_type="CITY", dest_id=-755070, include_city_suggestion=True):
+    """The live API's actual lookup shape — confirmed against the real key,
+    not the (stale) documented one. `dest_type` here reproduces the real
+    incident: the default match for some destinations (Zanzibar) is a
+    REGION/AIRPORT/HOTEL, and only a CITY-typed suggestion further down
+    actually has search inventory.
+    """
+    suggestions = [{"dest_id": dest_id, "dest_type": dest_type, "label": "Primary match"}]
+    if include_city_suggestion and dest_type != "CITY":
+        suggestions.append({"dest_id": -2574823, "dest_type": "CITY", "label": "The actual city"})
+    return {"success": True, "dest_id": dest_id, "dest_type": dest_type, "suggestions": suggestions}
+
+
+def stayapi_hotel(name, amount, stars=None, score=None, sold_out=False):
+    return {
+        "name": name,
+        "display_location": "Test City",
+        "address": "123 Test Street",
+        "star_rating": stars,
+        "price": {"amount": amount, "currency": "USD"},
+        "rating": {"score": score, "review_count": 100} if score else {},
+        "is_sold_out": sold_out,
+    }
+
+
+@override_settings(STAYAPI_KEY="", CACHES=LOCMEM_CACHE)
+class StayApiUnconfiguredTests(CacheIsolatedTestCase):
+    def test_unconfigured_returns_none_and_logs_failure(self):
+        result = StayApiHotelClient().search_hotels(
+            "Istanbul, Türkiye", date(2026, 12, 10), date(2026, 12, 18), 2, 8
+        )
+        self.assertIsNone(result)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="hotels_stayapi", success=False).count(), 1)
+
+
+@override_settings(STAYAPI_KEY="sk_live_test", CACHES=LOCMEM_CACHE)
+class StayApiHotelClientTests(CacheIsolatedTestCase):
+    @responses.activate
+    def test_maps_response_to_priced_offers_cheapest_first(self):
+        responses.add(responses.GET, STAYAPI_LOOKUP_URL, json=stayapi_lookup_payload(), status=200)
+        responses.add(
+            responses.GET,
+            STAYAPI_SEARCH_URL,
+            json={"data": {"hotels": [
+                stayapi_hotel("Expensive Hotel", 1120.0, stars=5),
+                stayapi_hotel("Cheap Guesthouse", 320.0, score=8.8),
+            ]}},
+            status=200,
+        )
+        offers = StayApiHotelClient().search_hotels(
+            "Istanbul, Türkiye", date(2026, 12, 10), date(2026, 12, 18), 2, 8
+        )
+        self.assertEqual([o.name for o in offers], ["Cheap Guesthouse", "Expensive Hotel"])
+        self.assertEqual(offers[0].night, 40.0)  # 320 / 8 nights
+        self.assertEqual(offers[0].rating, "8.8/10")  # no star_rating -> falls back to review score
+        self.assertEqual(offers[1].rating, "5★")
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="hotels_stayapi", success=True).count(), 1)
+
+    @responses.activate
+    def test_destination_search_url_is_attached_to_every_hotel(self):
+        responses.add(responses.GET, STAYAPI_LOOKUP_URL, json=stayapi_lookup_payload(), status=200)
+        responses.add(
+            responses.GET,
+            STAYAPI_SEARCH_URL,
+            json={
+                "url": "https://www.booking.com/searchresults.html?ss=Istanbul&aid=304142",
+                "data": {"hotels": [
+                    stayapi_hotel("Hotel A", 320.0),
+                    stayapi_hotel("Hotel B", 200.0),
+                ]},
+            },
+            status=200,
+        )
+        offers = StayApiHotelClient().search_hotels(
+            "Istanbul, Türkiye", date(2026, 12, 10), date(2026, 12, 18), 2, 8
+        )
+        for offer in offers:
+            self.assertEqual(offer.booking_url, "https://www.booking.com/searchresults.html?ss=Istanbul&aid=304142")
+
+    @responses.activate
+    def test_sold_out_hotels_are_excluded(self):
+        responses.add(responses.GET, STAYAPI_LOOKUP_URL, json=stayapi_lookup_payload(), status=200)
+        responses.add(
+            responses.GET,
+            STAYAPI_SEARCH_URL,
+            json={"data": {"hotels": [
+                stayapi_hotel("Sold Out Hotel", 100.0, sold_out=True),
+                stayapi_hotel("Available Hotel", 200.0),
+            ]}},
+            status=200,
+        )
+        offers = StayApiHotelClient().search_hotels(
+            "Istanbul, Türkiye", date(2026, 12, 10), date(2026, 12, 18), 2, 8
+        )
+        self.assertEqual([o.name for o in offers], ["Available Hotel"])
+
+    @responses.activate
+    def test_region_default_match_falls_through_to_city_suggestion(self):
+        # Reproduces the real Zanzibar incident: the default dest_id is a
+        # REGION that the search endpoint returns zero hotels for, but a
+        # CITY-typed suggestion two entries down actually has inventory.
+        responses.add(
+            responses.GET,
+            STAYAPI_LOOKUP_URL,
+            json=stayapi_lookup_payload(dest_type="REGION", dest_id=5140),
+            status=200,
+        )
+
+        def search_callback(request):
+            assert "dest_id=-2574823" in request.url, f"used the REGION id, not the CITY one: {request.url}"
+            return (200, {}, '{"data": {"hotels": [%s]}}' % '{"name": "Real Hotel", "price": {"amount": 100.0}}')
+
+        responses.add_callback(responses.GET, STAYAPI_SEARCH_URL, callback=search_callback)
+        offers = StayApiHotelClient().search_hotels("Zanzibar", date(2026, 12, 10), date(2026, 12, 18), 2, 8)
+        self.assertEqual(offers[0].name, "Real Hotel")
+
+    @responses.activate
+    def test_missing_dates_returns_none_without_calling_api(self):
+        offers = StayApiHotelClient().search_hotels("Istanbul, Türkiye", None, None, 2, 8)
+        self.assertIsNone(offers)
+        self.assertEqual(len(responses.calls), 0)
+
+    @responses.activate
+    def test_unresolvable_destination_returns_none(self):
+        responses.add(responses.GET, STAYAPI_LOOKUP_URL, json={"success": False}, status=200)
+        offers = StayApiHotelClient().search_hotels(
+            "Atlantis", date(2026, 12, 10), date(2026, 12, 18), 2, 8
+        )
+        self.assertIsNone(offers)
+
+    @responses.activate
+    def test_no_inventory_returns_none(self):
+        responses.add(responses.GET, STAYAPI_LOOKUP_URL, json=stayapi_lookup_payload(), status=200)
+        responses.add(responses.GET, STAYAPI_SEARCH_URL, json={"data": {"hotels": []}}, status=200)
+        offers = StayApiHotelClient().search_hotels(
+            "Istanbul, Türkiye", date(2026, 12, 10), date(2026, 12, 18), 2, 8
+        )
+        self.assertIsNone(offers)
+
+    @responses.activate
+    def test_api_error_returns_none_and_logs(self):
+        responses.add(responses.GET, STAYAPI_LOOKUP_URL, status=500)
+        offers = StayApiHotelClient().search_hotels(
+            "Istanbul, Türkiye", date(2026, 12, 10), date(2026, 12, 18), 2, 8
+        )
+        self.assertIsNone(offers)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="hotels_stayapi", success=False).count(), 1)
+
+
 OTM_GEONAME = "https://api.opentripmap.com/0.1/en/places/geoname"
 OTM_RADIUS = "https://api.opentripmap.com/0.1/en/places/radius"
 
 
-def otm_feature(name, kinds, rate=2):
-    return {"properties": {"name": name, "kinds": kinds, "rate": rate}}
+def otm_feature(name, kinds, rate=2, wikidata=None, osm=None):
+    props = {"name": name, "kinds": kinds, "rate": rate}
+    if wikidata is not None:
+        props["wikidata"] = wikidata
+    if osm is not None:
+        props["osm"] = osm
+    return {"properties": props}
 
 
 class EstimateEntryCostTests(TestCase):
@@ -552,6 +732,28 @@ class OpenTripMapClientTests(CacheIsolatedTestCase):
         self.assertIn("City Museum", [a.name for a in result])
 
     @responses.activate
+    def test_wikidata_link_is_preferred_over_osm(self):
+        self._mock([
+            otm_feature("Sukuma Museum", "cultural,museums", wikidata="Q1187329", osm="node/1908677124"),
+        ])
+        result = OpenTripMapClient().search_attractions("Mwanza")
+        self.assertEqual(result[0].booking_url, "https://www.wikidata.org/wiki/Q1187329")
+
+    @responses.activate
+    def test_osm_link_used_when_no_wikidata_tag(self):
+        self._mock([
+            otm_feature("Sukuma Museum", "cultural,museums", osm="node/1908677124"),
+        ])
+        result = OpenTripMapClient().search_attractions("Mwanza")
+        self.assertEqual(result[0].booking_url, "https://www.openstreetmap.org/node/1908677124")
+
+    @responses.activate
+    def test_no_link_when_neither_tag_present(self):
+        self._mock([otm_feature("Sukuma Museum", "cultural,museums")])
+        result = OpenTripMapClient().search_attractions("Mwanza")
+        self.assertEqual(result[0].booking_url, "")
+
+    @responses.activate
     def test_most_notable_first(self):
         self._mock([
             otm_feature("Minor Column", "historic", rate=2),
@@ -565,3 +767,348 @@ class OpenTripMapClientTests(CacheIsolatedTestCase):
         self._mock([])
         result = OpenTripMapClient().search_attractions("Nowhere")
         self.assertEqual(result, sample_data_for("Nowhere").attractions)
+
+
+SERPAPI_URL = "https://serpapi.com/search.json"
+
+
+def serp_flight_search_response(prices=(877,), google_flights_url="https://www.google.com/travel/flights?x"):
+    best_flights = []
+    for i, price in enumerate(prices):
+        best_flights.append(
+            {
+                "flights": [
+                    {
+                        "departure_airport": {"id": "DAR", "time": "2027-05-10 15:25"},
+                        "arrival_airport": {"id": "IST", "time": "2027-05-10 22:00"},
+                        "airline": "Emirates",
+                    }
+                ],
+                "layovers": [{"id": "DXB", "duration": 120}] if i == 0 else [],
+                "total_duration": 700,
+                "price": price,
+                "type": "Round trip",
+                "departure_token": f"token-{i}",
+            }
+        )
+    return {
+        "search_metadata": {"status": "Success", "google_flights_url": google_flights_url},
+        "best_flights": best_flights,
+        "other_flights": [],
+    }
+
+
+@override_settings(SERPAPI_KEY="", CACHES=LOCMEM_CACHE)
+class SerpApiUnconfiguredTests(CacheIsolatedTestCase):
+    def test_flights_unconfigured_returns_none_and_logs(self):
+        result = SerpApiFlightsClient().search_flights(
+            "Dar es Salaam", "Istanbul, Türkiye", 2, date(2027, 5, 10), date(2027, 5, 18)
+        )
+        self.assertIsNone(result)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_flights", success=False).count(), 1)
+
+    def test_hotels_unconfigured_returns_none_and_logs(self):
+        result = SerpApiHotelsClient().search_hotels(
+            "Istanbul, Türkiye", date(2027, 5, 10), date(2027, 5, 18), 2, 8
+        )
+        self.assertIsNone(result)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_hotels", success=False).count(), 1)
+
+    def test_search_unconfigured_returns_none_and_logs(self):
+        result = SerpApiSearchClient().resolve_link("Hagia Sophia Istanbul")
+        self.assertIsNone(result)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_search", success=False).count(), 1)
+
+    def test_attractions_unconfigured_returns_none_and_logs(self):
+        result = SerpApiAttractionsClient().search_attractions("Cairo, Egypt")
+        self.assertIsNone(result)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_attractions", success=False).count(), 1)
+
+
+@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+class SerpApiFlightsClientTests(CacheIsolatedTestCase):
+    @responses.activate
+    def test_maps_response_to_flight_offers_with_shared_booking_url(self):
+        responses.add(responses.GET, SERPAPI_URL, json=serp_flight_search_response(prices=[877, 950]), status=200)
+        offers = SerpApiFlightsClient().search_flights(
+            "Dar es Salaam", "Istanbul, Türkiye", 2, date(2027, 5, 10), date(2027, 5, 18)
+        )
+        self.assertEqual(len(offers), 2)
+        self.assertEqual(offers[0].price, 877.0)
+        self.assertEqual(offers[0].airline, "Emirates")
+        self.assertEqual(offers[0].route, "DAR → IST → DAR")
+        self.assertEqual(offers[0].label, "Cheapest")
+        for offer in offers:
+            self.assertEqual(offer.booking_url, "https://www.google.com/travel/flights?x")
+
+    @responses.activate
+    def test_sorted_cheapest_first_across_best_and_other_flights(self):
+        payload = serp_flight_search_response(prices=[950])
+        payload["other_flights"] = [
+            {
+                "flights": [
+                    {"departure_airport": {"id": "DAR"}, "arrival_airport": {"id": "IST"}, "airline": "Turkish Airlines"}
+                ],
+                "layovers": [],
+                "total_duration": 600,
+                "price": 700,
+                "type": "Round trip",
+            }
+        ]
+        responses.add(responses.GET, SERPAPI_URL, json=payload, status=200)
+        offers = SerpApiFlightsClient().search_flights(
+            "Dar es Salaam", "Istanbul, Türkiye", 1, date(2027, 5, 10), date(2027, 5, 18)
+        )
+        self.assertEqual(offers[0].price, 700.0)
+        self.assertEqual(offers[0].airline, "Turkish Airlines")
+        self.assertEqual(offers[0].stops, "Direct")
+        self.assertEqual(offers[1].stops, "1 stop")
+
+    @responses.activate
+    def test_missing_dates_returns_none_without_calling_api(self):
+        offers = SerpApiFlightsClient().search_flights("Dar es Salaam", "Istanbul, Türkiye", 2, None, None)
+        self.assertIsNone(offers)
+        self.assertEqual(len(responses.calls), 0)
+
+    @responses.activate
+    def test_unresolvable_route_returns_none_without_calling_api(self):
+        offers = SerpApiFlightsClient().search_flights(
+            "Atlantis", "Shangri-La", 2, date(2027, 5, 10), date(2027, 5, 18)
+        )
+        self.assertIsNone(offers)
+        self.assertEqual(len(responses.calls), 0)
+
+    @responses.activate
+    def test_api_error_returns_none_and_logs(self):
+        responses.add(responses.GET, SERPAPI_URL, status=500)
+        offers = SerpApiFlightsClient().search_flights(
+            "Dar es Salaam", "Istanbul, Türkiye", 2, date(2027, 5, 10), date(2027, 5, 18)
+        )
+        self.assertIsNone(offers)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_flights", success=False).count(), 1)
+
+    @responses.activate
+    def test_non_success_status_returns_none(self):
+        responses.add(responses.GET, SERPAPI_URL, json={"search_metadata": {"status": "Error"}}, status=200)
+        offers = SerpApiFlightsClient().search_flights(
+            "Dar es Salaam", "Istanbul, Türkiye", 2, date(2027, 5, 10), date(2027, 5, 18)
+        )
+        self.assertIsNone(offers)
+
+
+def serp_hotel_property(name, night, total, prop_type="hotel", stars=None, rating=None):
+    prop = {
+        "type": prop_type,
+        "name": name,
+        "rate_per_night": {"extracted_lowest": night},
+        "total_rate": {"extracted_lowest": total},
+        "description": f"{name} description",
+    }
+    if stars is not None:
+        prop["extracted_hotel_class"] = stars
+    if rating is not None:
+        prop["overall_rating"] = rating
+    return prop
+
+
+def serp_hotel_search_response(properties, google_hotels_url="https://www.google.com/travel/search?q=Istanbul"):
+    return {"search_metadata": {"status": "Success", "google_hotels_url": google_hotels_url}, "properties": properties}
+
+
+@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+class SerpApiHotelsClientTests(CacheIsolatedTestCase):
+    @responses.activate
+    def test_maps_response_to_priced_offers_cheapest_first_with_shared_url(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json=serp_hotel_search_response([
+                serp_hotel_property("JW Marriott", 319, 2554, stars=5),
+                serp_hotel_property("Cheers Lighthouse", 23, 184, stars=3),
+            ]),
+            status=200,
+        )
+        offers = SerpApiHotelsClient().search_hotels(
+            "Istanbul, Türkiye", date(2027, 5, 10), date(2027, 5, 18), 2, 8
+        )
+        self.assertEqual([o.name for o in offers], ["Cheers Lighthouse", "JW Marriott"])
+        self.assertEqual(offers[0].night, 23.0)
+        self.assertEqual(offers[0].rating, "3★")
+        for offer in offers:
+            self.assertEqual(offer.booking_url, "https://www.google.com/travel/search?q=Istanbul")
+
+    @responses.activate
+    def test_vacation_rentals_are_excluded(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json=serp_hotel_search_response([
+                serp_hotel_property("Sea view apartment", 259, 2075, prop_type="vacation rental"),
+                serp_hotel_property("La Quinta", 62, 493, stars=5),
+            ]),
+            status=200,
+        )
+        offers = SerpApiHotelsClient().search_hotels(
+            "Istanbul, Türkiye", date(2027, 5, 10), date(2027, 5, 18), 2, 8
+        )
+        self.assertEqual([o.name for o in offers], ["La Quinta"])
+
+    @responses.activate
+    def test_rating_falls_back_to_overall_rating_out_of_five_when_no_star_class(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json=serp_hotel_search_response([serp_hotel_property("Boutique Stay", 100, 800, rating=4.6)]),
+            status=200,
+        )
+        offers = SerpApiHotelsClient().search_hotels(
+            "Istanbul, Türkiye", date(2027, 5, 10), date(2027, 5, 18), 2, 8
+        )
+        self.assertEqual(offers[0].rating, "4.6/5")
+
+    @responses.activate
+    def test_missing_dates_returns_none_without_calling_api(self):
+        offers = SerpApiHotelsClient().search_hotels("Istanbul, Türkiye", None, None, 2, 8)
+        self.assertIsNone(offers)
+        self.assertEqual(len(responses.calls), 0)
+
+    @responses.activate
+    def test_no_properties_returns_none(self):
+        responses.add(responses.GET, SERPAPI_URL, json=serp_hotel_search_response([]), status=200)
+        offers = SerpApiHotelsClient().search_hotels(
+            "Istanbul, Türkiye", date(2027, 5, 10), date(2027, 5, 18), 2, 8
+        )
+        self.assertIsNone(offers)
+
+    @responses.activate
+    def test_api_error_returns_none_and_logs(self):
+        responses.add(responses.GET, SERPAPI_URL, status=500)
+        offers = SerpApiHotelsClient().search_hotels(
+            "Istanbul, Türkiye", date(2027, 5, 10), date(2027, 5, 18), 2, 8
+        )
+        self.assertIsNone(offers)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_hotels", success=False).count(), 1)
+
+
+@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+class SerpApiSearchClientTests(CacheIsolatedTestCase):
+    @responses.activate
+    def test_returns_top_organic_result_link(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json={
+                "search_metadata": {"status": "Success"},
+                "organic_results": [
+                    {"position": 1, "title": "Hagia Sophia", "link": "https://en.wikipedia.org/wiki/Hagia_Sophia"},
+                ],
+            },
+            status=200,
+        )
+        link = SerpApiSearchClient().resolve_link("Hagia Sophia Istanbul")
+        self.assertEqual(link, "https://en.wikipedia.org/wiki/Hagia_Sophia")
+
+    @responses.activate
+    def test_no_organic_results_returns_none(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json={"search_metadata": {"status": "Success"}, "organic_results": []},
+            status=200,
+        )
+        link = SerpApiSearchClient().resolve_link("Some Obscure Spot Istanbul")
+        self.assertIsNone(link)
+
+    @responses.activate
+    def test_api_error_returns_none_and_logs(self):
+        responses.add(responses.GET, SERPAPI_URL, status=500)
+        link = SerpApiSearchClient().resolve_link("Hagia Sophia Istanbul")
+        self.assertIsNone(link)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_search", success=False).count(), 1)
+
+
+def serp_sight(title, price=None, rating=4.5, reviews=1000, description="Open", link=None):
+    sight = {"title": title, "description": description, "rating": rating, "reviews": reviews}
+    if price is not None:
+        sight["price"] = f"${price}"
+        sight["extracted_price"] = price
+    if link is not None:
+        sight["link"] = link
+    return sight
+
+
+def serp_attractions_response(sights):
+    return {"search_metadata": {"status": "Success"}, "top_sights": {"sights": sights}}
+
+
+@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+class SerpApiAttractionsClientTests(CacheIsolatedTestCase):
+    @responses.activate
+    def test_maps_top_sights_to_attractions(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json=serp_attractions_response([
+                serp_sight("Egyptian Museum", price=10.61, rating=4.5, reviews=65000, link="https://google.example/museum"),
+                serp_sight("Khan el-Khalili", price=None, rating=4.4, reviews=76000, description="Open"),
+            ]),
+            status=200,
+        )
+        result = SerpApiAttractionsClient().search_attractions("Cairo, Egypt")
+        self.assertEqual(result[0].name, "Egyptian Museum")
+        self.assertEqual(result[0].cost, 10.61)
+        self.assertEqual(result[0].booking_url, "https://google.example/museum")
+        self.assertIn("★", result[0].desc)
+        # No extracted_price ("Free") -> cost 0.0, and no link field -> "".
+        self.assertEqual(result[1].cost, 0.0)
+        self.assertEqual(result[1].booking_url, "")
+
+    @responses.activate
+    def test_generic_open_closed_description_is_replaced(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json=serp_attractions_response([serp_sight("Some Place", description="Open")]),
+            status=200,
+        )
+        result = SerpApiAttractionsClient().search_attractions("Cairo, Egypt")
+        self.assertNotIn("Open", result[0].desc)
+        self.assertIn("Popular attraction", result[0].desc)
+
+    @responses.activate
+    def test_duplicate_titles_are_deduplicated(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json=serp_attractions_response([serp_sight("Egyptian Museum"), serp_sight("Egyptian Museum")]),
+            status=200,
+        )
+        result = SerpApiAttractionsClient().search_attractions("Cairo, Egypt")
+        self.assertEqual(len(result), 1)
+
+    @responses.activate
+    def test_caps_at_six_and_marks_the_sixth_optional(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json=serp_attractions_response([serp_sight(f"Sight {i}") for i in range(10)]),
+            status=200,
+        )
+        result = SerpApiAttractionsClient().search_attractions("Cairo, Egypt")
+        self.assertEqual(len(result), 6)
+        for a in result[:5]:
+            self.assertFalse(a.optional)
+        self.assertTrue(result[5].optional)
+
+    @responses.activate
+    def test_no_sights_returns_none(self):
+        responses.add(responses.GET, SERPAPI_URL, json=serp_attractions_response([]), status=200)
+        result = SerpApiAttractionsClient().search_attractions("Nowhere")
+        self.assertIsNone(result)
+
+    @responses.activate
+    def test_api_error_returns_none_and_logs(self):
+        responses.add(responses.GET, SERPAPI_URL, status=500)
+        result = SerpApiAttractionsClient().search_attractions("Cairo, Egypt")
+        self.assertIsNone(result)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_attractions", success=False).count(), 1)

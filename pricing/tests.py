@@ -16,6 +16,7 @@ from pricing.budget import (
     estimate_flights,
     estimate_hotels,
     estimate_sim_cost,
+    fill_missing_booking_urls,
 )
 from pricing.itinerary import build_itinerary
 from pricing.optimizer import optimize
@@ -42,17 +43,59 @@ class StubActivities:
         ]
 
 
+class StubActivitiesSerp:
+    """Mirrors SerpApiAttractionsClient (tier 1); None means build_plan()
+    falls through to OpenTripMap (StubActivities).
+    """
+
+    def search_attractions(self, destination):
+        return None
+
+
 class StubVisa:
     def get_visa_info(self, nationality, destination):
         return VisaInfo("Tourist entry requirement", "Verify before departure.", "Check stay length", 60, "VERIFY")
 
 
+class StubFlightsBackup:
+    """Mirrors SerpApiFlightsClient (tier 2); None means build_plan() falls
+    through to estimate_flights()/fixtures.
+    """
+
+    def search_flights(self, origin, destination, adults, start_date=None, end_date=None):
+        return None
+
+
 class StubHotels:
-    """Mirrors LiteApiHotelClient; None means no live inventory, so
-    build_plan() falls back to estimate_hotels().
+    """Mirrors LiteApiHotelClient (tier 1); None means no live inventory, so
+    build_plan() tries hotels_serp (tier 2), then hotels_backup (tier 3),
+    then estimate_hotels().
     """
 
     def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3):
+        return None
+
+
+class StubHotelsSerp:
+    """Mirrors SerpApiHotelsClient (tier 2)."""
+
+    def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3):
+        return None
+
+
+class StubHotelsBackup:
+    """Mirrors StayApiHotelClient (tier 3)."""
+
+    def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3):
+        return None
+
+
+class StubAttractionLinks:
+    """Mirrors SerpApiSearchClient; None means fill_missing_booking_urls()
+    falls back to the generic search-query URL.
+    """
+
+    def resolve_link(self, query):
         return None
 
 
@@ -80,10 +123,15 @@ class StubExchange:
 def make_clients():
     return SimpleNamespace(
         flights=StubFlights(),
+        flights_backup=StubFlightsBackup(),
         activities=StubActivities(),
+        activities_serp=StubActivitiesSerp(),
         visa=StubVisa(),
         esim=StubEsim(),
         hotels=StubHotels(),
+        hotels_serp=StubHotelsSerp(),
+        hotels_backup=StubHotelsBackup(),
+        attraction_links=StubAttractionLinks(),
         maps=StubMaps(),
         exchange=StubExchange(),
     )
@@ -159,6 +207,23 @@ class BuildPlanTests(unittest.TestCase):
         plan = build_plan(make_inputs(travel_style="balanced"), make_clients())
         # 30 + 45 + 55 + 0 + 20 (Premium Excursion is optional=True, excluded)
         self.assertEqual(plan.attractions_cost, 150)
+
+    def test_serpapi_attractions_is_tried_first_and_bypasses_opentripmap(self):
+        clients = make_clients()
+        clients.activities_serp.search_attractions = lambda destination: [
+            Attraction("Egyptian Museum", 10.61, "Museum (Google).", booking_url="https://google.example/museum"),
+        ]
+        clients.activities.search_attractions = lambda destination: (_ for _ in ()).throw(
+            AssertionError("OpenTripMap should not be called when SerpApi (tier 1) has attractions")
+        )
+        plan = build_plan(make_inputs(), clients)
+        self.assertEqual(plan.attractions[0].name, "Egyptian Museum")
+        self.assertEqual(plan.attractions[0].booking_url, "https://google.example/museum")
+
+    def test_opentripmap_is_used_when_serpapi_has_nothing(self):
+        plan = build_plan(make_inputs(), make_clients())
+        # activities_serp (tier 1) returns None by default; StubActivities (tier 2) has data.
+        self.assertEqual(plan.attractions[0].name, "Landmark A")
 
     def test_luxury_style_costs_more_than_budget_style(self):
         luxury = build_plan(make_inputs(travel_style="luxury"), make_clients())
@@ -261,6 +326,42 @@ class EstimateHotelsTests(unittest.TestCase):
         plan = build_plan(make_inputs(destination="Zanzibar"), make_clients())
         self.assertIn("Mid-range hotel", plan.hotels[0].name)
 
+    def test_serpapi_is_tried_first_and_bypasses_liteapi_and_stayapi(self):
+        clients = make_clients()
+        clients.hotels_serp.search_hotels = lambda *a, **kw: [
+            HotelOffer("JW Marriott", "Istanbul", "5★", 319.0, 2554.0, "", booking_url="https://google.example/hotels"),
+        ]
+        clients.hotels.search_hotels = lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("LiteAPI should not be called when SerpApi (tier 1) has inventory")
+        )
+        clients.hotels_backup.search_hotels = lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("StayAPI should not be called when SerpApi (tier 1) has inventory")
+        )
+        plan = build_plan(make_inputs(), clients)
+        self.assertEqual(plan.hotels[0].name, "JW Marriott")
+        self.assertEqual(plan.hotels[0].booking_url, "https://google.example/hotels")
+
+    def test_liteapi_is_used_when_serpapi_has_nothing(self):
+        clients = make_clients()
+        # tier 1 (StubHotelsSerp) already returns None by default.
+        clients.hotels.search_hotels = lambda *a, **kw: [
+            HotelOffer("Tier Two Hotel", "Istanbul", "5★", 80.0, 640.0, ""),
+        ]
+        clients.hotels_backup.search_hotels = lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("StayAPI should not be called when LiteAPI (tier 2) has inventory")
+        )
+        plan = build_plan(make_inputs(), clients)
+        self.assertEqual(plan.hotels[0].name, "Tier Two Hotel")
+
+    def test_stayapi_is_used_when_serpapi_and_liteapi_have_nothing(self):
+        clients = make_clients()
+        # tiers 1 (StubHotelsSerp) and 2 (StubHotels) already return None.
+        clients.hotels_backup.search_hotels = lambda *a, **kw: [
+            HotelOffer("Daf House", "Zanzibar", "Unrated", 25.93, 207.44, "Real StayAPI property"),
+        ]
+        plan = build_plan(make_inputs(destination="Zanzibar"), clients)
+        self.assertEqual(plan.hotels[0].name, "Daf House")
+
     def test_labels_are_honest_tiers_not_invented_hotel_names(self):
         hotels = estimate_hotels("Tunisia", 8)
         # Must not fabricate listings like "Tunisia Central Hotel".
@@ -299,8 +400,21 @@ class EstimateFlightsTests(unittest.TestCase):
 
 
 class FlightFallbackTests(unittest.TestCase):
-    def test_live_flights_are_used_when_available(self):
+    def test_serpapi_is_tried_first_and_bypasses_travelpayouts(self):
+        clients = make_clients()
+        clients.flights_backup.search_flights = lambda *a, **kw: [
+            FlightOffer("Emirates", "DAR → IST → DAR", "1 stop", "10 hrs", 877, "Cheapest", booking_url="https://google.example/flights")
+        ]
+        clients.flights.search_flights = lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("Travelpayouts should not be called when SerpApi (tier 1) has a fare")
+        )
+        plan = build_plan(make_inputs(), clients)
+        self.assertEqual(plan.flights[0].airline, "Emirates")
+        self.assertEqual(plan.flights[0].booking_url, "https://google.example/flights")
+
+    def test_travelpayouts_is_used_when_serpapi_has_nothing(self):
         plan = build_plan(make_inputs(), make_clients())
+        # tier 1 (StubFlightsBackup) returns None by default; StubFlights (tier 2) has a fare.
         self.assertEqual(plan.flights[0].airline, "Test Air")
         # 550/person * 3 people * 1.0 style multiplier
         self.assertEqual(plan.flight_cost, 1650)
@@ -309,7 +423,7 @@ class FlightFallbackTests(unittest.TestCase):
         clients = make_clients()
         clients.flights.search_flights = lambda *a, **kw: None
         plan = build_plan(make_inputs(), clients)
-        # Tier 2: a real, route-specific estimate — not the fixture airline.
+        # Tier 3: a real, route-specific estimate — not the fixture airline.
         self.assertEqual(plan.flights[0].airline, "Estimated fare")
         self.assertEqual(plan.flights[0].route, "DAR → IST → DAR")
         self.assertGreater(plan.flight_cost, 0)
@@ -318,7 +432,7 @@ class FlightFallbackTests(unittest.TestCase):
         clients = make_clients()
         clients.flights.search_flights = lambda *a, **kw: None
         plan = build_plan(make_inputs(departure="Atlantis", destination="Shangri-La"), clients)
-        # Tier 3: nothing resolvable, so the illustrative fixtures stand in.
+        # Tier 4: nothing resolvable, so the illustrative fixtures stand in.
         self.assertEqual(plan.flights[0].airline, "Turkish Airlines")
         self.assertEqual(plan.flight_cost, 550 * 3)
 
@@ -361,6 +475,81 @@ class OptimizeTests(unittest.TestCase):
         optimized = optimize(plan, make_clients())
         self.assertEqual(optimized.inputs.travel_style, "budget")
         self.assertLess(optimized.total, plan.total)
+
+
+class FillMissingBookingUrlsTests(unittest.TestCase):
+    def test_native_urls_are_kept_untouched(self):
+        flights = [FlightOffer("Test Air", "DAR → IST", "1 stop", "10h", 550, booking_url="https://aviasales.example/x")]
+        hotels = [HotelOffer("Hotel", "Centre", "4★", 80.0, 640.0, "", booking_url="https://booking.example/y")]
+        attractions = [Attraction("Landmark", 10, "desc", booking_url="https://wikidata.example/z")]
+        f, h, a = fill_missing_booking_urls(flights, hotels, attractions, "Istanbul", None, None)
+        self.assertEqual(f[0].booking_url, "https://aviasales.example/x")
+        self.assertEqual(h[0].booking_url, "https://booking.example/y")
+        self.assertEqual(a[0].booking_url, "https://wikidata.example/z")
+
+    def test_missing_urls_get_a_real_fallback(self):
+        flights = [FlightOffer("Test Air", "DAR → IST", "1 stop", "10h", 550)]
+        hotels = [HotelOffer("Hotel", "Centre", "4★", 80.0, 640.0, "")]
+        attractions = [Attraction("Landmark", 10, "desc")]
+        f, h, a = fill_missing_booking_urls(
+            flights, hotels, attractions, "Istanbul", date(2027, 5, 10), date(2027, 5, 18)
+        )
+        self.assertTrue(f[0].booking_url.startswith("https://www.google.com/search?q="))
+        self.assertIn("Test+Air", f[0].booking_url)
+        self.assertTrue(h[0].booking_url.startswith("https://www.booking.com/searchresults.html?"))
+        self.assertIn("ss=Istanbul", h[0].booking_url)
+        self.assertIn("checkin=2027-05-10", h[0].booking_url)
+        self.assertIn("checkout=2027-05-18", h[0].booking_url)
+        self.assertTrue(a[0].booking_url.startswith("https://www.google.com/search?q="))
+        self.assertIn("Landmark", a[0].booking_url)
+
+    def test_build_plan_never_leaves_an_empty_booking_url(self):
+        plan = build_plan(make_inputs(), make_clients())
+        for flight in plan.flights:
+            self.assertTrue(flight.booking_url)
+        for hotel in plan.hotels:
+            self.assertTrue(hotel.booking_url)
+        for attraction in plan.attractions:
+            self.assertTrue(attraction.booking_url)
+
+    def test_attraction_links_client_result_is_preferred_over_the_generic_search_url(self):
+        attractions = [Attraction("Hagia Sophia", 0, "desc")]
+        client = SimpleNamespace(resolve_link=lambda query: "https://en.wikipedia.org/wiki/Hagia_Sophia")
+        _, _, a = fill_missing_booking_urls(
+            [], [], attractions, "Istanbul", None, None, attraction_links_client=client
+        )
+        self.assertEqual(a[0].booking_url, "https://en.wikipedia.org/wiki/Hagia_Sophia")
+
+    def test_generic_search_url_used_when_attraction_links_client_finds_nothing(self):
+        attractions = [Attraction("Some Obscure Spot", 0, "desc")]
+        client = SimpleNamespace(resolve_link=lambda query: None)
+        _, _, a = fill_missing_booking_urls(
+            [], [], attractions, "Istanbul", None, None, attraction_links_client=client
+        )
+        self.assertTrue(a[0].booking_url.startswith("https://www.google.com/search?q="))
+
+    def test_attraction_links_client_is_not_called_when_a_link_already_exists(self):
+        # activities_serp's own "Top sights" link (or OpenTripMap's
+        # wikidata/osm one) is real; spending a second SerpApi call to
+        # double-check it would waste the scarce monthly quota for nothing.
+        attractions = [Attraction("Hagia Sophia", 0, "desc", booking_url="https://www.wikidata.org/wiki/Q1")]
+        client = SimpleNamespace(
+            resolve_link=lambda query: (_ for _ in ()).throw(
+                AssertionError("attraction_links_client should not be called when a link already exists")
+            )
+        )
+        _, _, a = fill_missing_booking_urls(
+            [], [], attractions, "Istanbul", None, None, attraction_links_client=client
+        )
+        self.assertEqual(a[0].booking_url, "https://www.wikidata.org/wiki/Q1")
+
+    def test_existing_wikidata_link_kept_when_attraction_links_client_finds_nothing(self):
+        attractions = [Attraction("Hagia Sophia", 0, "desc", booking_url="https://www.wikidata.org/wiki/Q1")]
+        client = SimpleNamespace(resolve_link=lambda query: None)
+        _, _, a = fill_missing_booking_urls(
+            [], [], attractions, "Istanbul", None, None, attraction_links_client=client
+        )
+        self.assertEqual(a[0].booking_url, "https://www.wikidata.org/wiki/Q1")
 
 
 class BuildItineraryTests(unittest.TestCase):

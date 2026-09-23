@@ -5,6 +5,7 @@ network access (see pricing/tests.py).
 from dataclasses import dataclass, field, replace
 from datetime import date
 from math import asin, cos, radians, sin, sqrt
+from urllib.parse import quote_plus
 
 from integrations.countries import region_for
 from integrations.dataclasses import Attraction, FlightOffer, HotelOffer, VisaInfo
@@ -142,6 +143,58 @@ def cost_of_living_index(hotels: list[HotelOffer]) -> float:
     return min(max(index, COST_OF_LIVING_MIN), COST_OF_LIVING_MAX)
 
 
+def _search_url(query: str) -> str:
+    return f"https://www.google.com/search?q={quote_plus(query)}"
+
+
+def _booking_search_url(city: str, start_date: date | None, end_date: date | None) -> str:
+    """Real Booking.com destination search, buildable with zero API calls
+    (its `ss=` free-text field needs no resolved destination ID) — the
+    fallback for any hotel without its own booking_url (LiteAPI's live
+    rates and the regional-estimate tiers both have no native one).
+    """
+    params = f"ss={quote_plus(city)}"
+    if start_date:
+        params += f"&checkin={start_date.isoformat()}"
+    if end_date:
+        params += f"&checkout={end_date.isoformat()}"
+    return f"https://www.booking.com/searchresults.html?{params}"
+
+
+def fill_missing_booking_urls(
+    flights: list[FlightOffer],
+    hotels: list[HotelOffer],
+    attractions: list[Attraction],
+    city: str,
+    start_date: date | None,
+    end_date: date | None,
+    attraction_links_client=None,
+) -> tuple[list[FlightOffer], list[HotelOffer], list[Attraction]]:
+    """"View / Book" must never dead-end on a fake modal — every item gets a
+    real destination on the web, either the provider's own link or a
+    same-purpose fallback search (never a plain "search this flight/hotel
+    name" query, which is far less useful than one scoped to the right site
+    and, for hotels, the right dates).
+
+    `attraction_links_client` (SerpApiSearchClient) is only used for an
+    attraction that still has no link at all — SerpApiAttractionsClient's own
+    "Top sights" results already carry a real link, and OpenTripMap's
+    wikidata/osm tag covers most of the rest, so this only fires for the
+    rare attraction with neither: a live search call beats a generic query
+    link, but it's not worth spending on an attraction that already has one.
+    """
+    flights = [f if f.booking_url else replace(f, booking_url=_search_url(f"{f.airline} {f.route} flights")) for f in flights]
+    hotels = [h if h.booking_url else replace(h, booking_url=_booking_search_url(city, start_date, end_date)) for h in hotels]
+    filled_attractions = []
+    for a in attractions:
+        if a.booking_url:
+            filled_attractions.append(a)
+            continue
+        resolved = attraction_links_client.resolve_link(f"{a.name} {city}") if attraction_links_client else None
+        filled_attractions.append(replace(a, booking_url=resolved or _search_url(f"{a.name} {city}")))
+    return flights, hotels, filled_attractions
+
+
 def haversine_km(origin: tuple[float, float], destination: tuple[float, float]) -> float:
     lat1, lon1 = (radians(v) for v in origin)
     lat2, lon2 = (radians(v) for v in destination)
@@ -253,23 +306,43 @@ def build_plan(inputs: TripInputs, clients) -> BudgetPlan:
     mult = STYLE_MULTIPLIERS.get(inputs.travel_style, 1.0)
 
     visa = clients.visa.get_visa_info(inputs.nationality, inputs.destination)
-    # Live cached fares where they exist, a distance-based estimate for the
-    # many routes Travelpayouts has no cached price for, and the illustrative
-    # fixtures only if the route can't be located at all.
+    # SerpApi first — real Google Flights prices, the richest source
+    # available. Travelpayouts' cached market fare is the fallback for
+    # whenever SerpApi is unconfigured, out of monthly quota, or has nothing
+    # for the route; a distance-based estimate and the illustrative fixtures
+    # are the last two tiers.
     flights = (
-        clients.flights.search_flights(
+        clients.flights_backup.search_flights(
+            inputs.departure, inputs.destination, people, inputs.start_date, inputs.end_date
+        )
+        or clients.flights.search_flights(
             inputs.departure, inputs.destination, people, inputs.start_date, inputs.end_date
         )
         or estimate_flights(inputs.departure, inputs.destination)
         or sample_data_for(inputs.destination).flights
     )
     city = inputs.destination.split(",")[0].strip() or inputs.destination
-    # Live per-property rates where LiteAPI has inventory; the regional
-    # estimate only covers destinations it doesn't reach.
-    hotels = clients.hotels.search_hotels(
-        inputs.destination, inputs.start_date, inputs.end_date, inputs.adults, nights, inputs.nationality
-    ) or estimate_hotels(inputs.destination, nights)
-    attractions = clients.activities.search_attractions(inputs.destination)
+    # SerpApi first — real Google Hotels prices. LiteAPI and StayAPI are the
+    # fallbacks for whenever SerpApi is unconfigured, out of monthly quota,
+    # or has nothing for the destination; StayAPI stays last since its free
+    # tier is a scarcer 50 requests *total*, not per-month.
+    hotel_args = (inputs.destination, inputs.start_date, inputs.end_date, inputs.adults, nights, inputs.nationality)
+    hotels = (
+        clients.hotels_serp.search_hotels(*hotel_args)
+        or clients.hotels.search_hotels(*hotel_args)
+        or clients.hotels_backup.search_hotels(*hotel_args)
+        or estimate_hotels(inputs.destination, nights)
+    )
+    # SerpApi first — Google's own "Top sights" carousel: real names,
+    # ratings and (for ticketed sights) real entry prices. OpenTripMap
+    # (category-estimated prices, its own wikidata/osm link) is the
+    # fallback for whenever SerpApi is unconfigured, out of quota, or has
+    # nothing for the destination; OpenTripMapClient never returns empty
+    # (it falls back to the illustrative fixtures internally), so this is
+    # the last tier reached either way.
+    attractions = clients.activities_serp.search_attractions(
+        inputs.destination
+    ) or clients.activities.search_attractions(inputs.destination)
     esim_bundle = clients.esim.get_bundle(inputs.destination, nights)
 
     # Real cost-of-living signal for this specific destination, from the
@@ -291,6 +364,13 @@ def build_plan(inputs: TripInputs, clients) -> BudgetPlan:
     attractions = [replace(a, cost=round(a.cost * exchange_rate, 2)) for a in attractions]
     if esim_bundle:
         esim_bundle = replace(esim_bundle, price=round(esim_bundle.price * exchange_rate, 2))
+
+    # "View / Book" must always go somewhere real — backfill any item whose
+    # provider didn't supply its own deep link (LiteAPI hotels, the regional
+    # hotel estimate, and the fixture fallbacks all have none natively).
+    flights, hotels, attractions = fill_missing_booking_urls(
+        flights, hotels, attractions, city, inputs.start_date, inputs.end_date, clients.attraction_links
+    )
 
     # Flight prices are per person (Travelpayouts quotes that way, and the
     # fixtures are normalised to match), so this scales by party size.
