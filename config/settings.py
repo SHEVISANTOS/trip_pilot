@@ -9,13 +9,46 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(
-    DEBUG=(bool, True),
+    # False by default so an unconfigured production deploy fails safe —
+    # local dev sets DEBUG=True explicitly in .env, which always wins here.
+    DEBUG=(bool, False),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-dev-only-change-me")
 DEBUG = env("DEBUG")
-ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1" , "192.168.1.207"])
+
+# Vercel injects VERCEL_URL (the current deployment's own host, no scheme)
+# at runtime — trust it automatically so every preview deploy works without
+# hand-editing ALLOWED_HOSTS per-URL. *.vercel.app covers the stable
+# project domain too. Set ALLOWED_HOSTS in Vercel's env vars if a custom
+# domain is added later.
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "192.168.1.207"])
+VERCEL_URL = env("VERCEL_URL", default="")
+if VERCEL_URL:
+    ALLOWED_HOSTS.append(VERCEL_URL)
+if VERCEL_URL or not DEBUG:
+    ALLOWED_HOSTS.append(".vercel.app")
+
+# Vercel terminates TLS at the edge and proxies to the function over plain
+# HTTP, so Django needs to trust its X-Forwarded-Proto header — without
+# this, SECURE_SSL_REDIRECT below would redirect-loop on every request.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Django's CSRF check compares the request's Origin against this list, not
+# ALLOWED_HOSTS — needs the full scheme, and a wildcard for preview deploys
+# (each gets its own *.vercel.app subdomain).
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=["https://*.vercel.app"])
+if VERCEL_URL:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{VERCEL_URL}")
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
 
 
 # Application definition
@@ -123,6 +156,9 @@ CACHE_TTL_SERPAPI = env.int("CACHE_TTL_SERPAPI", default=24 * 60 * 60)
 # as a literal string.
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="") or REDIS_URL or "memory://"
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="") or REDIS_URL or "cache+memory://"
+# Must stay True on Vercel: a Vercel Function has no persistent worker
+# process to run a real Celery consumer, so plan generation runs
+# synchronously inside the request instead — see vercel.json's maxDuration.
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=True)
 
 

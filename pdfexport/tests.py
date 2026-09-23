@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -79,3 +80,16 @@ class ExportPdfViewTests(TestCase):
         self.client.force_login(other)
         response = self.client.get(reverse("pdfexport:export", kwargs={"pk": saved_trip.pk}))
         self.assertEqual(response.status_code, 404)
+
+    def test_missing_weasyprint_system_libraries_degrades_gracefully(self):
+        # Simulates a host (serverless platforms especially) that has the
+        # weasyprint package installed but not its native Pango/Cairo/
+        # GDK-Pixbuf dependencies — WeasyPrint raises OSError in that case.
+        # This must return a clean error response, not crash the request.
+        owner = User.objects.create_user(username="pdfowner4", password="pw12345!")
+        saved_trip = create_saved_trip(owner)
+        self.client.force_login(owner)
+        with patch("weasyprint.HTML", side_effect=OSError("cannot load library libpango-1.0")):
+            response = self.client.get(reverse("pdfexport:export", kwargs={"pk": saved_trip.pk}))
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response["Content-Type"], "text/plain")
