@@ -4,13 +4,6 @@
 Use this as the instruction prompt for a coding assistant (Claude Code, etc.) to turn the current static HTML/JS prototype into a working, data-driven Django MVT application.
 
 ---
-
-## 0. Context to give the assistant
-
-> I have a working static prototype (index.html, style.css, app.js) for "TripPilot AI," a travel budget planner. It currently uses hardcoded sample data for flights, hotels, attractions, and visa info. I need you to rebuild it as a **Django MVT** application that pulls **real data from external APIs**, adds **user accounts with saved itineraries**, a **PDF export**, a **budget optimizer**, and a **polished custom Django admin panel**. Preserve the existing visual design language (the color palette, typography, and card/panel layout in style.css) — re-theme the admin to match it rather than using Django's default look. Keep changes file-by-file and tell me exactly which file each change belongs in rather than handing me a full rebuild.
-
----
-
 ## 1. Data Sources & External APIs (per feature)
 
 | Feature | Recommended API/Source | Notes |
