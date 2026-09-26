@@ -85,6 +85,8 @@ def persist_plan(trip_request: TripRequest, plan: BudgetPlan) -> None:
                     "departure_date": lb.departure_date.isoformat() if lb.departure_date else None,
                     "hotels": [asdict(h) for h in lb.hotels],
                     "attractions": [asdict(a) for a in lb.attractions],
+                    "visa": asdict(lb.visa),
+                    "sim_detail": lb.sim_detail,
                     "hotel_cost": lb.hotel_cost,
                     "attractions_cost": lb.attractions_cost,
                     "food_cost": lb.food_cost,

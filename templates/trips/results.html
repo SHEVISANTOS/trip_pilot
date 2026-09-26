@@ -59,13 +59,29 @@
 
   <div class="two-col">
     <article class="panel">
-      <div class="panel-head"><h3>🛂 Visa & Entry</h3><span class="tag" >{{ breakdown.visa.tag }}</span></div>
+      <div class="panel-head"><h3>🛂 Visa & Entry</h3>{% if not is_multi_city %}<span class="tag">{{ breakdown.visa.tag }}</span>{% endif %}</div>
+      {% if is_multi_city %}
+      <ul class="small-list">
+        {% for leg in legs %}
+        <li>
+          <span>
+            <b>{{ leg.city }}</b> <span class="tag">{{ leg.visa.tag }}</span><br>
+            <small>{{ leg.visa.type }} — {{ leg.visa.method }}</small><br>
+            <small>{{ leg.visa.stay }}</small>
+          </span>
+          <b>{{ leg.visa_cost|money:trip_request.currency }}</b>
+        </li>
+        {% endfor %}
+        <li><span><b>Estimated planning allowance, all destinations</b></span><b>{{ breakdown.visa_cost|money:trip_request.currency }}</b></li>
+      </ul>
+      {% else %}
       <ul class="small-list">
         <li><span><b>Type</b><br>{{ breakdown.visa.type }}</span></li>
         <li><span><b>Application</b><br>{{ breakdown.visa.method }}</span></li>
         <li><span><b>Length of stay</b><br>{{ breakdown.visa.stay }}</span></li>
         <li><span><b>Estimated planning allowance</b></span><b>{{ breakdown.visa_cost|money:trip_request.currency }}</b></li>
       </ul>
+      {% endif %}
     </article>
     <article class="panel">
       <div class="panel-head"><h3>💰 Budget Allocation</h3><span class="tag {% if not breakdown.over_budget %}green{% endif %}">{% if breakdown.over_budget %}OVER BUDGET{% else %}WITHIN BUDGET{% endif %}</span></div>

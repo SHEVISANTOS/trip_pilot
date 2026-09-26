@@ -537,20 +537,21 @@ def build_plan(inputs: TripInputs, clients) -> BudgetPlan:
     insurance_cost = round(100 * (people / 3) * exchange_rate)
     emergency_cost = round(max(200 * exchange_rate, (flight_cost + hotel_cost + food_cost) * 0.12))
 
-    # Primary/first leg's visa and eSIM stand in for the single-item detail
-    # text on the summary panel — visa_cost/sim_cost above already sum every
-    # leg's own country/bundle, so the *total* is accurate even though the
-    # panel names only leg 1's requirements for now.
+    # Primary/first leg's visa stands in for the single-item summary-panel
+    # text — visa_cost above already sums every leg's own country, so the
+    # *total* is accurate; results.html/the PDF export itemize every leg's
+    # actual visa via plan.legs/breakdown.legs instead of relying on this
+    # for anything beyond the top-line summary row.
     visa = leg_budgets[0].visa
-    sim_detail = leg_budgets[0].sim_detail
     if inputs.is_multi_city:
         route = " → ".join([inputs.departure] + [leg.city for leg in inputs.legs] + [inputs.departure])
         flight_detail = f"{len(flights)}-flight route — {route}"
         hotel_detail = f"{len(leg_budgets)} destinations — {nights} nights total"
-        sim_detail = f"{sim_detail} (+ {len(leg_budgets) - 1} more destination{'s' if len(leg_budgets) > 2 else ''})"
+        sim_detail = "; ".join(f"{lb.city.split(',')[0].strip()}: {lb.sim_detail}" for lb in leg_budgets)
     else:
         flight_detail = f"{flights[0].airline} — {flights[0].route}"
         hotel_detail = f"{leg_budgets[0].hotels[0].name} — {nights} nights"
+        sim_detail = leg_budgets[0].sim_detail
 
     items = [
         LineItem("Visa", visa.type, visa_cost),

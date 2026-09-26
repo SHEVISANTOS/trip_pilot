@@ -3,7 +3,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>{{ trip_request.destination }} — TripPilot AI Itinerary</title>
+<title>{% if is_multi_city %}{{ route }}{% else %}{{ trip_request.destination }}{% endif %} — TripPilot AI Itinerary</title>
 <link rel="stylesheet" href="{% static 'style.css' %}">
 <style>
   body{background:#fff}
@@ -20,8 +20,8 @@
   <div class="trip-banner">
     <div>
       <span class="eyebrow">TRAVEL ITINERARY</span>
-      <h2>{{ trip_request.destination }}</h2>
-      <p>{{ trip_request.departure }} • {{ breakdown.people }} traveller{{ breakdown.people|pluralize }} • {{ breakdown.nights }} nights • {{ trip_request.purpose }}</p>
+      {% if is_multi_city %}<h2>{{ route }}</h2>{% else %}<h2>{{ trip_request.destination }}</h2>{% endif %}
+      <p>{{ trip_request.departure }} • {{ breakdown.people }} traveller{{ breakdown.people|pluralize }} • {{ breakdown.nights }} nights{% if is_multi_city %} • {{ breakdown.legs|length }} destinations{% endif %} • {{ trip_request.purpose }}</p>
     </div>
   </div>
 
@@ -45,11 +45,22 @@
 
   <article class="panel full">
     <div class="panel-head"><h3>🛂 Visa & Entry</h3></div>
+    {% if is_multi_city %}
+    <ul class="small-list">
+      {% for leg in breakdown.legs %}
+      <li>
+        <span><b>{{ leg.city }}</b><br><small>{{ leg.visa.type }} — {{ leg.visa.method }}</small><br><small>{{ leg.visa.stay }}</small></span>
+        <b>{{ leg.visa_cost|money:trip_request.currency }}</b>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
     <ul class="small-list">
       <li><span><b>Type</b><br>{{ breakdown.visa.type }}</span></li>
       <li><span><b>Application</b><br>{{ breakdown.visa.method }}</span></li>
       <li><span><b>Length of stay</b><br>{{ breakdown.visa.stay }}</span></li>
     </ul>
+    {% endif %}
   </article>
 
   <section class="panel full">

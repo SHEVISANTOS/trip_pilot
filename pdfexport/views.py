@@ -10,13 +10,18 @@ from trips.models import SavedTrip
 def export_pdf(request, pk):
     saved_trip = get_object_or_404(SavedTrip, pk=pk, user=request.user)
     trip_request = saved_trip.trip_request
+    breakdown = trip_request.budget_breakdown
+    is_multi_city = len(breakdown.legs) > 1
+    route = " → ".join([trip_request.departure] + [leg["city"] for leg in breakdown.legs] + [trip_request.departure])
     html_string = render_to_string(
         "pdfexport/itinerary_pdf.html",
         {
             "trip_request": trip_request,
-            "breakdown": trip_request.budget_breakdown,
+            "breakdown": breakdown,
             "itinerary": trip_request.itinerary,
             "saved_trip": saved_trip,
+            "is_multi_city": is_multi_city,
+            "route": route,
         },
     )
     try:
