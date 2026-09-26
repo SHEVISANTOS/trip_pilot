@@ -20,6 +20,7 @@ from trips.services import (
     SHOWCASE_CACHE_KEY,
     STALLED_PLAN_RETRY_AFTER_SECONDS,
     get_showcase_plan,
+    inputs_from_trip_request,
     retry_stalled_plan_if_needed,
 )
 
@@ -171,6 +172,7 @@ class LegFormSetTests(TestCase):
                 "legs-1-city": "Nairobi, Kenya",
                 "legs-1-arrival_date": (start + timedelta(days=3)).isoformat(),  # before leg 0 departs
                 "legs-1-departure_date": (start + timedelta(days=7)).isoformat(),
+                "legs-1-hotel_preference": "3–4 Star Hotel",
             }
         )
         formset = LegFormSet(data=data, prefix="legs")
@@ -187,10 +189,60 @@ class LegFormSetTests(TestCase):
                 "legs-1-city": "Nairobi, Kenya",
                 "legs-1-arrival_date": (start + timedelta(days=4)).isoformat(),
                 "legs-1-departure_date": (start + timedelta(days=8)).isoformat(),
+                "legs-1-hotel_preference": "3–4 Star Hotel",
             }
         )
         formset = LegFormSet(data=data, prefix="legs")
         self.assertTrue(formset.is_valid(), formset.errors)
+
+
+class InputsFromTripRequestTests(TestCase):
+    def test_builds_one_leg_input_per_tripleg_row(self):
+        trip_request = TripRequest.objects.create(
+            departure="Dar es Salaam",
+            destination="Cape Town, South Africa",
+            nationality="Tanzanian",
+            start_date=date.today() + timedelta(days=100),
+            end_date=date.today() + timedelta(days=109),
+            budget=3000,
+        )
+        trip_request.legs.create(
+            order=0,
+            city="Cape Town, South Africa",
+            arrival_date=date.today() + timedelta(days=100),
+            departure_date=date.today() + timedelta(days=104),
+        )
+        trip_request.legs.create(
+            order=1,
+            city="Istanbul, Türkiye",
+            arrival_date=date.today() + timedelta(days=104),
+            departure_date=date.today() + timedelta(days=109),
+        )
+        inputs = inputs_from_trip_request(trip_request)
+        self.assertEqual(len(inputs.legs), 2)
+        self.assertEqual(inputs.legs[0].city, "Cape Town, South Africa")
+        self.assertEqual(inputs.legs[1].city, "Istanbul, Türkiye")
+        self.assertTrue(inputs.is_multi_city)
+
+    def test_falls_back_to_legacy_fields_when_no_legs_exist(self):
+        # Simulates a TripRequest created some way other than the real
+        # planner form (e.g. directly via /admin/ without the inline) —
+        # every trip the form itself creates always gets >=1 TripLeg first.
+        trip_request = TripRequest.objects.create(
+            departure="Dar es Salaam",
+            destination="Nairobi, Kenya",
+            nationality="Tanzanian",
+            start_date=date.today() + timedelta(days=100),
+            end_date=date.today() + timedelta(days=105),
+            hotel_preference="Resort",
+            budget=3000,
+        )
+        self.assertFalse(trip_request.legs.exists())
+        inputs = inputs_from_trip_request(trip_request)
+        self.assertEqual(len(inputs.legs), 1)
+        self.assertEqual(inputs.legs[0].city, "Nairobi, Kenya")
+        self.assertEqual(inputs.legs[0].hotel_preference, "Resort")
+        self.assertFalse(inputs.is_multi_city)
 
 
 @override_settings(CACHES=LOCMEM_CACHE)

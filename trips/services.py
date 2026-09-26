@@ -32,17 +32,33 @@ SHOWCASE_LEAD_DAYS = 60
 
 
 def inputs_from_trip_request(trip_request: TripRequest) -> TripInputs:
+    legs = [
+        LegInput(
+            city=leg.city,
+            arrival_date=leg.arrival_date,
+            departure_date=leg.departure_date,
+            hotel_preference=leg.hotel_preference,
+        )
+        for leg in trip_request.legs.all()
+    ]
+    if not legs:
+        # Every trip created through the real planner form always gets at
+        # least one TripLeg row before generation starts (see
+        # trips.views.planner) — this only fires for a TripRequest created
+        # some other way (e.g. directly via /admin/ without filling in the
+        # inline). Falls back to the legacy destination/dates fields rather
+        # than crashing build_plan() on an empty legs list.
+        legs = [
+            LegInput(
+                city=trip_request.destination,
+                arrival_date=trip_request.start_date,
+                departure_date=trip_request.end_date,
+                hotel_preference=trip_request.hotel_preference,
+            )
+        ]
     return TripInputs(
         departure=trip_request.departure,
-        legs=[
-            LegInput(
-                city=leg.city,
-                arrival_date=leg.arrival_date,
-                departure_date=leg.departure_date,
-                hotel_preference=leg.hotel_preference,
-            )
-            for leg in trip_request.legs.all()
-        ],
+        legs=legs,
         nationality=trip_request.nationality,
         adults=trip_request.adults,
         children=trip_request.children,
