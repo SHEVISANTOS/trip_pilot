@@ -12,6 +12,9 @@
     {% endfor %}
     <div class="wide form-actions"><button class="primary" type="submit">Create account</button></div>
   </form>
+  <div style="max-width:420px;margin-top:14px">
+    <a class="secondary" href="{% url 'google_login' %}" style="display:block;text-align:center">Continue with Google</a>
+  </div>
   <p class="disclaimer">Already have an account? <a href="{% url 'accounts:login' %}">Log in</a></p>
 </section>
 {% endblock %}

@@ -12,6 +12,9 @@
     <input type="hidden" name="next" value="{{ next }}">
     <div class="wide form-actions"><button class="primary" type="submit">Log in</button></div>
   </form>
-  <p class="disclaimer">New here? <a href="{% url 'accounts:signup' %}">Create an account</a></p>
+  <div style="max-width:420px;margin-top:14px">
+    <a class="secondary" href="{% url 'google_login' %}{% if next %}?next={{ next }}{% endif %}" style="display:block;text-align:center">Continue with Google</a>
+  </div>
+  <p class="disclaimer">New here? <a href="{% url 'accounts:signup' %}">Create an account</a> · <a href="{% url 'accounts:password_reset' %}">Forgot password?</a></p>
 </section>
 {% endblock %}

@@ -61,6 +61,14 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Required by allauth even though we only use its Google social-login
+    # piece, not its own account/login/signup views (accounts.urls already
+    # has ours, styled to match the site — see config/urls.py).
+    "django.contrib.sites",
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
+    "allauth.socialaccount.providers.google",
     "django_ratelimit",
     "accounts",
     "trips",
@@ -74,9 +82,41 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "allauth.account.middleware.AccountMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+SITE_ID = 1
+
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
+
+# Creates the User (with a username auto-derived from the Google email's
+# local part) on first Google sign-in with no intermediate "complete your
+# signup" step — matches plain username/password signup's directness.
+SOCIALACCOUNT_AUTO_SIGNUP = True
+SOCIALACCOUNT_LOGIN_ON_GET = True
+
+# Configured via settings, not a DB-backed SocialApp row created through
+# /admin/ — keeps the credential in .env like every other integration here,
+# and survives a fresh database (a new Neon branch, a teammate's local
+# Postgres) without a manual admin step to repeat.
+GOOGLE_OAUTH_CLIENT_ID = env("GOOGLE_OAUTH_CLIENT_ID", default="")
+GOOGLE_OAUTH_CLIENT_SECRET = env("GOOGLE_OAUTH_CLIENT_SECRET", default="")
+if GOOGLE_OAUTH_CLIENT_ID:
+    SOCIALACCOUNT_PROVIDERS = {
+        "google": {
+            "APP": {
+                "client_id": GOOGLE_OAUTH_CLIENT_ID,
+                "secret": GOOGLE_OAUTH_CLIENT_SECRET,
+                "key": "",
+            },
+            "SCOPE": ["profile", "email"],
+        }
+    }
 
 ROOT_URLCONF = "config.urls"
 
@@ -219,6 +259,33 @@ SERPAPI_KEY = env("SERPAPI_KEY", default="")
 VISA_DATASET_PATH = env("VISA_DATASET_PATH", default="") or str(
     BASE_DIR / "integrations" / "data" / "passport_index_visa.csv"
 )
+
+
+# Password-reset emails (Brevo). BREVO_API_KEY (HTTP API) is preferred over
+# EMAIL_HOST_USER (SMTP relay) — Brevo's SMTP relay only accepts connections
+# from allowlisted IPs, which Vercel Functions can't provide (no static
+# outbound IP without an Enterprise add-on), so SMTP works for a fixed dev
+# machine but not in that production environment. Falls back to printing
+# the email to the console when neither is set, so `manage.py test`/local
+# dev work with zero setup — but that fallback is a dev convenience only,
+# not a real send.
+BREVO_API_KEY = env("BREVO_API_KEY", default="")
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+if BREVO_API_KEY:
+    EMAIL_BACKEND = "integrations.brevo_email.BrevoAPIEmailBackend"
+elif EMAIL_HOST_USER:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = env("EMAIL_HOST", default="smtp-relay.brevo.com")
+    EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+    EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+# Brevo only accepts a `sender.email` it has verified for this account —
+# verified live via GET /v3/senders, the only one on file is the account
+# owner's own address. Sending from anything else (a made-up domain, etc.)
+# is rejected outright, so this can't default to something invented.
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="TripPilot AI <shevijeremiah@gmail.com>")
 
 
 # Rate limiting (django-ratelimit) for the planner endpoint.

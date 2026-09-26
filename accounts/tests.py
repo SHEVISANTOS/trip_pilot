@@ -1,6 +1,9 @@
+import re
 from datetime import date, timedelta
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import TestCase
 from django.urls import reverse
 
@@ -65,10 +68,16 @@ class SignupViewTests(TestCase):
     def test_valid_signup_creates_user_and_logs_in(self):
         response = self.client.post(
             reverse("accounts:signup"),
-            data={"username": "freshtraveller", "password1": "Sup3rSecurePass!23", "password2": "Sup3rSecurePass!23"},
+            data={
+                "username": "freshtraveller",
+                "email": "fresh@example.com",
+                "password1": "Sup3rSecurePass!23",
+                "password2": "Sup3rSecurePass!23",
+            },
         )
         self.assertRedirects(response, reverse("accounts:dashboard"))
-        self.assertTrue(User.objects.filter(username="freshtraveller").exists())
+        user = User.objects.get(username="freshtraveller")
+        self.assertEqual(user.email, "fresh@example.com")
         response = self.client.get(reverse("accounts:dashboard"))
         self.assertEqual(response.status_code, 200)
 
@@ -76,9 +85,38 @@ class SignupViewTests(TestCase):
         before = User.objects.count()
         self.client.post(
             reverse("accounts:signup"),
-            data={"username": "baduser", "password1": "Sup3rSecurePass!23", "password2": "DifferentPass!45"},
+            data={
+                "username": "baduser",
+                "email": "bad@example.com",
+                "password1": "Sup3rSecurePass!23",
+                "password2": "DifferentPass!45",
+            },
         )
         self.assertEqual(User.objects.count(), before)
+
+    def test_email_is_required(self):
+        before = User.objects.count()
+        response = self.client.post(
+            reverse("accounts:signup"),
+            data={"username": "noemail", "password1": "Sup3rSecurePass!23", "password2": "Sup3rSecurePass!23"},
+        )
+        self.assertEqual(User.objects.count(), before)
+        self.assertFormError(response.context["form"], "email", "This field is required.")
+
+    def test_duplicate_email_is_rejected(self):
+        User.objects.create_user(username="first", email="taken@example.com", password="pw12345!")
+        before = User.objects.count()
+        response = self.client.post(
+            reverse("accounts:signup"),
+            data={
+                "username": "second",
+                "email": "taken@example.com",
+                "password1": "Sup3rSecurePass!23",
+                "password2": "Sup3rSecurePass!23",
+            },
+        )
+        self.assertEqual(User.objects.count(), before)
+        self.assertFormError(response.context["form"], "email", "An account with this email already exists.")
 
     def test_already_authenticated_user_is_redirected_away(self):
         user = User.objects.create_user(username="existing", password="pw12345!")
@@ -112,3 +150,74 @@ class DashboardViewTests(TestCase):
         response = self.client.get(reverse("accounts:dashboard"))
         self.assertContains(response, "Owner&#x27;s Trip")
         self.assertNotContains(response, "Other&#x27;s Trip")
+
+
+class PasswordResetFlowTests(TestCase):
+    """Django's test runner swaps EMAIL_BACKEND for the in-memory one
+    automatically, so these exercise the real reset flow (email → link →
+    new password) without touching the real Brevo SMTP relay.
+    """
+
+    def test_requesting_a_reset_for_a_known_email_sends_one(self):
+        User.objects.create_user(username="resetme", email="resetme@example.com", password="OldPass!123")
+        response = self.client.post(reverse("accounts:password_reset"), data={"email": "resetme@example.com"})
+        self.assertRedirects(response, reverse("accounts:password_reset_done"))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Reset your TripPilot AI password", mail.outbox[0].subject)
+        self.assertIn("resetme@example.com", mail.outbox[0].to)
+
+    def test_unknown_email_sends_nothing_but_still_shows_the_done_page(self):
+        # Must not leak whether an email is registered.
+        response = self.client.post(reverse("accounts:password_reset"), data={"email": "nobody@example.com"})
+        self.assertRedirects(response, reverse("accounts:password_reset_done"))
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_full_reset_flow_changes_the_password(self):
+        User.objects.create_user(username="resetme2", email="resetme2@example.com", password="OldPass!123")
+        self.client.post(reverse("accounts:password_reset"), data={"email": "resetme2@example.com"})
+        body = mail.outbox[0].body
+        match = re.search(r"https?://[^\s]+/accounts/reset/[^\s]+", body)
+        self.assertIsNotNone(match, body)
+        # Strip scheme+domain, keep the path (test client doesn't need a host).
+        reset_path = re.sub(r"^https?://[^/]+", "", match.group(0))
+
+        # First GET validates the token and redirects to the session-backed
+        # "set-password" URL — this is the same two-step flow a browser follows.
+        response = self.client.get(reset_path, follow=True)
+        confirm_path = response.request["PATH_INFO"]
+
+        response = self.client.post(
+            confirm_path,
+            data={"new_password1": "NewSup3rPass!99", "new_password2": "NewSup3rPass!99"},
+        )
+        self.assertRedirects(response, reverse("accounts:password_reset_complete"))
+
+        self.assertFalse(self.client.login(username="resetme2", password="OldPass!123"))
+        self.assertTrue(self.client.login(username="resetme2", password="NewSup3rPass!99"))
+
+    def test_login_page_links_to_password_reset(self):
+        response = self.client.get(reverse("accounts:login"))
+        self.assertContains(response, reverse("accounts:password_reset"))
+
+
+class GoogleSignInTests(TestCase):
+    """Full OAuth can't be exercised in a unit test (it needs a real browser
+    round-trip through accounts.google.com), so this covers what's actually
+    ours: the redirect is initiated correctly, with the real configured
+    client_id and the exact callback path Google Cloud Console must have
+    registered. Verified live against the real endpoint separately (see
+    session notes) — this locks that behavior in going forward.
+    """
+
+    def test_login_redirects_to_google_with_configured_client_id(self):
+        response = self.client.get(reverse("google_login"))
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith("https://accounts.google.com/o/oauth2/v2/auth?"))
+        self.assertIn(f"client_id={settings.GOOGLE_OAUTH_CLIENT_ID}", response.url)
+        self.assertIn("redirect_uri=", response.url)
+        self.assertIn("accounts%2Fgoogle%2Flogin%2Fcallback", response.url)
+
+    def test_login_and_signup_pages_link_to_google(self):
+        for url_name in ("accounts:login", "accounts:signup"):
+            response = self.client.get(reverse(url_name))
+            self.assertContains(response, reverse("google_login"))
