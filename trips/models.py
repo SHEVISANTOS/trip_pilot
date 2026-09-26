@@ -73,6 +73,37 @@ class TripRequest(models.Model):
     def people(self):
         return self.adults + self.children
 
+    @property
+    def is_multi_city(self):
+        return self.legs.count() > 1
+
+
+class TripLeg(models.Model):
+    """One stop on the itinerary. Every TripRequest has at least one — for a
+    single-destination trip (still the common case) that's just one leg
+    mirroring the legacy destination/start_date/end_date/hotel_preference
+    fields above, which stay in sync with leg 0 for every template, the PDF
+    export, the dashboard list, etc. that already read them directly as a
+    plain destination/date pair.
+    """
+
+    trip_request = models.ForeignKey(TripRequest, on_delete=models.CASCADE, related_name="legs")
+    order = models.PositiveSmallIntegerField()
+    city = models.CharField(max_length=120)
+    arrival_date = models.DateField()
+    departure_date = models.DateField()
+    hotel_preference = models.CharField(max_length=30, choices=ACCOMMODATION_CHOICES, default="3–4 Star Hotel")
+
+    class Meta:
+        ordering = ["order"]
+
+    def __str__(self):
+        return f"{self.city} ({self.arrival_date} → {self.departure_date})"
+
+    @property
+    def nights(self):
+        return max((self.departure_date - self.arrival_date).days, 1)
+
 
 class BudgetBreakdown(models.Model):
     trip_request = models.OneToOneField(TripRequest, on_delete=models.CASCADE, related_name="budget_breakdown")
@@ -81,6 +112,10 @@ class BudgetBreakdown(models.Model):
     flights = models.JSONField(help_text="[{airline, route, stops, duration, price, label}, ...]")
     hotels = models.JSONField(help_text="[{name, area, rating, night, total, desc}, ...]")
     attractions = models.JSONField(help_text="[{name, cost, desc, optional}, ...]")
+    legs = models.JSONField(
+        default=list,
+        help_text="[{city, nights, hotels, attractions, hotel_cost, ...}, ...] — per-destination breakdown",
+    )
     nights = models.PositiveSmallIntegerField()
     people = models.PositiveSmallIntegerField()
     flight_cost = models.DecimalField(max_digits=10, decimal_places=2)

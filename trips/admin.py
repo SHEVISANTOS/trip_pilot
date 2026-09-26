@@ -1,7 +1,7 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
 
-from trips.models import BudgetBreakdown, Itinerary, ItineraryActivity, ItineraryDay, SavedTrip, TripRequest
+from trips.models import BudgetBreakdown, Itinerary, ItineraryActivity, ItineraryDay, SavedTrip, TripLeg, TripRequest
 
 
 class OverBudgetFilter(admin.SimpleListFilter):
@@ -19,12 +19,19 @@ class OverBudgetFilter(admin.SimpleListFilter):
         return queryset
 
 
+class TripLegInline(TabularInline):
+    model = TripLeg
+    extra = 0
+    fields = ("order", "city", "arrival_date", "departure_date", "hotel_preference")
+
+
 @admin.register(TripRequest)
 class TripRequestAdmin(ModelAdmin):
     list_display = ("destination", "created_by", "budget", "currency", "travel_style", "created_at", "budget_status")
     list_filter = ("travel_style", "currency", OverBudgetFilter)
     search_fields = ("destination", "departure", "nationality")
     date_hierarchy = "created_at"
+    inlines = [TripLegInline]
 
     @admin.display(description="Status")
     def budget_status(self, obj):

@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from integrations.clients import IntegrationClients
 from integrations.countries import resolve_country
-from pricing.budget import BudgetPlan, TripInputs, build_plan, format_money
+from pricing.budget import BudgetPlan, LegInput, TripInputs, build_plan, format_money
 from pricing.itinerary import build_itinerary
 from trips.models import BudgetBreakdown, Itinerary, ItineraryActivity, ItineraryDay, TripRequest
 
@@ -34,14 +34,19 @@ SHOWCASE_LEAD_DAYS = 60
 def inputs_from_trip_request(trip_request: TripRequest) -> TripInputs:
     return TripInputs(
         departure=trip_request.departure,
-        destination=trip_request.destination,
+        legs=[
+            LegInput(
+                city=leg.city,
+                arrival_date=leg.arrival_date,
+                departure_date=leg.departure_date,
+                hotel_preference=leg.hotel_preference,
+            )
+            for leg in trip_request.legs.all()
+        ],
         nationality=trip_request.nationality,
         adults=trip_request.adults,
         children=trip_request.children,
-        start_date=trip_request.start_date,
-        end_date=trip_request.end_date,
         travel_style=trip_request.travel_style,
-        hotel_preference=trip_request.hotel_preference,
         currency=trip_request.currency,
         budget=float(trip_request.budget),
     )
@@ -56,6 +61,24 @@ def persist_plan(trip_request: TripRequest, plan: BudgetPlan) -> None:
             flights=[asdict(f) for f in plan.flights],
             hotels=[asdict(h) for h in plan.hotels],
             attractions=[asdict(a) for a in plan.attractions],
+            legs=[
+                {
+                    "city": lb.city,
+                    "nights": lb.nights,
+                    "arrival_date": lb.arrival_date.isoformat() if lb.arrival_date else None,
+                    "departure_date": lb.departure_date.isoformat() if lb.departure_date else None,
+                    "hotels": [asdict(h) for h in lb.hotels],
+                    "attractions": [asdict(a) for a in lb.attractions],
+                    "hotel_cost": lb.hotel_cost,
+                    "attractions_cost": lb.attractions_cost,
+                    "food_cost": lb.food_cost,
+                    "transport_cost": lb.transport_cost,
+                    "transfer_cost": lb.transfer_cost,
+                    "visa_cost": lb.visa_cost,
+                    "sim_cost": lb.sim_cost,
+                }
+                for lb in plan.legs
+            ],
             nights=plan.nights,
             people=plan.people,
             flight_cost=plan.flight_cost,
@@ -206,14 +229,18 @@ def _computed_showcase() -> dict | None:
         plan = build_plan(
             TripInputs(
                 departure=departure,
-                destination=destination,
+                legs=[
+                    LegInput(
+                        city=destination,
+                        arrival_date=start,
+                        departure_date=start + timedelta(days=SHOWCASE_NIGHTS),
+                        hotel_preference="3–4 Star Hotel",
+                    )
+                ],
                 nationality="Tanzanian",
                 adults=2,
                 children=1,
-                start_date=start,
-                end_date=start + timedelta(days=SHOWCASE_NIGHTS),
                 travel_style="balanced",
-                hotel_preference="3–4 Star Hotel",
                 currency="USD",
                 budget=SHOWCASE_BUDGET,
             ),

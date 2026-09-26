@@ -6,8 +6,12 @@
   <div class="trip-banner">
     <div>
       <span class="eyebrow">YOUR RECOMMENDED TRIP</span>
-      <h2>{{ trip_request.destination }}</h2>
-      <p>{{ trip_request.departure }} • {{ breakdown.people }} traveller{{ breakdown.people|pluralize }} • {{ breakdown.nights }} nights • {{ trip_request.purpose }}</p>
+      {% if is_multi_city %}
+        <h2>{% for leg in legs %}{{ leg.city }}{% if not forloop.last %} → {% endif %}{% endfor %}</h2>
+      {% else %}
+        <h2>{{ trip_request.destination }}</h2>
+      {% endif %}
+      <p>{{ trip_request.departure }} • {{ breakdown.people }} traveller{{ breakdown.people|pluralize }} • {{ breakdown.nights }} nights{% if is_multi_city %} • {{ legs|length }} destinations{% endif %} • {{ trip_request.purpose }}</p>
     </div>
     <div>
       <form method="post" action="{% url 'trips:optimize' trip_request.pk %}" style="display:inline">
@@ -37,6 +41,20 @@
   <div class="alert warn">⚠️ Your current plan is {{ breakdown.remaining|money:trip_request.currency }} over budget. Use “Optimize for My Budget” to reduce costs.</div>
   {% else %}
   <div class="alert info">ℹ️ Your plan is currently within budget with {{ breakdown.remaining|money:trip_request.currency }} remaining. Prices are illustrative until live provider keys are configured.</div>
+  {% endif %}
+
+  {% if is_multi_city %}
+  <section class="panel full">
+    <div class="panel-head"><h3>🗺️ Your Route</h3><span>{{ legs|length }} destinations</span></div>
+    <ul class="small-list">
+      {% for leg in legs %}
+      <li>
+        <span><b>{{ forloop.counter }}. {{ leg.city }}</b><br><small>{{ leg.arrival_date }} → {{ leg.departure_date }} • {{ leg.nights }} night{{ leg.nights|pluralize }}</small></span>
+        <b>{{ leg.total|money:trip_request.currency }}</b>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
   {% endif %}
 
   <div class="two-col">
@@ -82,6 +100,7 @@
     {% for hotel in hotels_display %}
       <div class="card">
         <span class="tag {% if forloop.first %}green{% endif %}">{% if forloop.first %}RECOMMENDED{% else %}{{ hotel.rating }}{% endif %}</span>
+        {% if hotel.leg_city %}<span class="tag">{{ hotel.leg_city }}</span>{% endif %}
         <h4>{{ hotel.name }}</h4>
         <p>{{ hotel.area }} • {{ hotel.rating }}</p>
         <p>{{ hotel.desc }}</p>
@@ -121,6 +140,7 @@
     {% for attraction in attractions_display %}
       <div class="card">
         <span class="tag">{% if attraction.cost == 0 %}FREE{% else %}ACTIVITY{% endif %}</span>
+        {% if attraction.leg_city %}<span class="tag">{{ attraction.leg_city }}</span>{% endif %}
         <h4>{{ attraction.name }}</h4>
         <p>{{ attraction.desc }}</p>
         <div class="card-price">{{ attraction.display_cost|money:trip_request.currency }}</div>

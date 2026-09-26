@@ -13,7 +13,6 @@ CHEAPEST_HOTEL_PREFERENCE = "3–4 Star Hotel"
 def optimize(plan: BudgetPlan, clients) -> BudgetPlan:
     if plan.within_budget:
         return plan
-    cheaper_inputs = replace(
-        plan.inputs, travel_style=CHEAPEST_STYLE, hotel_preference=CHEAPEST_HOTEL_PREFERENCE
-    )
+    cheaper_legs = [replace(leg, hotel_preference=CHEAPEST_HOTEL_PREFERENCE) for leg in plan.inputs.legs]
+    cheaper_inputs = replace(plan.inputs, travel_style=CHEAPEST_STYLE, legs=cheaper_legs)
     return build_plan(cheaper_inputs, clients)

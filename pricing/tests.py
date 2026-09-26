@@ -9,6 +9,7 @@ from integrations.dataclasses import Attraction, EsimBundle, ExchangeRate, Fligh
 from pricing.budget import (
     COST_OF_LIVING_MAX,
     COST_OF_LIVING_MIN,
+    LegInput,
     TripInputs,
     build_plan,
     calculate_nights,
@@ -138,6 +139,11 @@ def make_clients():
 
 
 def make_inputs(**overrides):
+    """Accepts the old flat destination/start_date/end_date/hotel_preference
+    kwargs (translated into a single LegInput below) so every existing
+    single-destination test call site keeps working unchanged — pass
+    `legs=[...]` directly instead for a multi-city test.
+    """
     defaults = dict(
         departure="Dar es Salaam",
         destination="Istanbul, Türkiye",
@@ -152,7 +158,14 @@ def make_inputs(**overrides):
         budget=5000,
     )
     defaults.update(overrides)
-    return TripInputs(**defaults)
+    legs = defaults.pop("legs", None)
+    destination = defaults.pop("destination")
+    start_date = defaults.pop("start_date")
+    end_date = defaults.pop("end_date")
+    hotel_preference = defaults.pop("hotel_preference")
+    if legs is None:
+        legs = [LegInput(city=destination, arrival_date=start_date, departure_date=end_date, hotel_preference=hotel_preference)]
+    return TripInputs(legs=legs, **defaults)
 
 
 class CalculateNightsTests(unittest.TestCase):

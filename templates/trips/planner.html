@@ -24,22 +24,54 @@
   <form method="post" class="form-grid">
     {% csrf_token %}
     <label>Departure city{{ form.departure }}</label>
-    <label>Destination{{ form.destination }}</label>
     <label>Nationality{{ form.nationality }}</label>
     <label>Trip purpose{{ form.purpose }}</label>
-    <label>Departure date{{ form.start_date }}</label>
-    <label>Return date{{ form.end_date }}</label>
     <label>Adults{{ form.adults }}</label>
     <label>Children{{ form.children }}</label>
     <label>Travel style{{ form.travel_style }}</label>
-    <label>Accommodation{{ form.hotel_preference }}</label>
     <label>Interests{{ form.interests }}</label>
     <label>Currency{{ form.currency }}</label>
     <label class="wide budget-input">Total trip budget<div class="money"><span id="currencySymbol">$</span>{{ form.budget }}</div></label>
     {% if form.non_field_errors %}
       <div class="wide alert warn">{{ form.non_field_errors|join:" " }}</div>
     {% endif %}
-    <div class="wide form-actions"><button class="primary" type="submit">✨ Create My Travel Plan</button></div>
+
+    <div class="wide" style="margin-top:10px">
+      <h3 style="margin:0 0 4px">Destinations</h3>
+      <p style="margin:0 0 14px;color:var(--muted);font-size:14px">Add every city on your route, in order. One is fine for a normal trip — add more for a multi-city itinerary.</p>
+      {{ leg_formset.management_form }}
+      {% if leg_formset.non_form_errors %}
+        <div class="alert warn">{{ leg_formset.non_form_errors|join:" " }}</div>
+      {% endif %}
+      <div id="leg-forms">
+        {% for leg_form in leg_formset %}
+        <div class="leg-row">
+          <div class="form-grid" style="margin-top:0">
+            <label>Destination city{{ leg_form.city }}</label>
+            <label>Arrival date{{ leg_form.arrival_date }}</label>
+            <label>Departure date{{ leg_form.departure_date }}</label>
+            <label>Accommodation{{ leg_form.hotel_preference }}</label>
+            {% if leg_form.non_field_errors %}
+              <div class="wide alert warn">{{ leg_form.non_field_errors|join:" " }}</div>
+            {% endif %}
+          </div>
+          <button type="button" class="leg-remove outline" style="margin-top:10px">✕ Remove this destination</button>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="button" id="add-leg" class="secondary" style="margin-top:14px">＋ Add another destination</button>
+      <template id="empty-leg-form">
+        <div class="form-grid" style="margin-top:0">
+          <label>Destination city{{ leg_formset.empty_form.city }}</label>
+          <label>Arrival date{{ leg_formset.empty_form.arrival_date }}</label>
+          <label>Departure date{{ leg_formset.empty_form.departure_date }}</label>
+          <label>Accommodation{{ leg_formset.empty_form.hotel_preference }}</label>
+        </div>
+        <button type="button" class="leg-remove outline" style="margin-top:10px">✕ Remove this destination</button>
+      </template>
+    </div>
+
+    <div class="wide form-actions" style="margin-top:18px"><button class="primary" type="submit">✨ Create My Travel Plan</button></div>
   </form>
 </section>
 

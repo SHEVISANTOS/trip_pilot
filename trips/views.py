@@ -7,8 +7,8 @@ from django_ratelimit.decorators import ratelimit
 from integrations.clients import IntegrationClients
 from pricing.budget import CURRENCY_SYMBOLS, build_plan, format_money
 from pricing.optimizer import optimize as optimize_plan
-from trips.forms import TripRequestForm
-from trips.models import CHECKLIST_ITEMS, SavedTrip, TripRequest
+from trips.forms import LegFormSet, TripRequestForm
+from trips.models import CHECKLIST_ITEMS, SavedTrip, TripLeg, TripRequest
 from trips.services import get_showcase_plan, inputs_from_trip_request, persist_plan, retry_stalled_plan_if_needed
 from trips.tasks import build_and_persist_plan_task
 
@@ -17,16 +17,46 @@ from trips.tasks import build_and_persist_plan_task
 def planner(request):
     if request.method == "POST":
         form = TripRequestForm(request.POST)
-        if form.is_valid():
+        leg_formset = LegFormSet(request.POST, prefix="legs")
+        if form.is_valid() and leg_formset.is_valid():
+            legs_data = [
+                f.cleaned_data for f in leg_formset.forms if f.cleaned_data and not f.cleaned_data.get("DELETE")
+            ]
             trip_request = form.save(commit=False)
             if request.user.is_authenticated:
                 trip_request.created_by = request.user
+            # destination/start_date/end_date/hotel_preference stay in sync
+            # with leg 0 — every template, the PDF export, dashboard list
+            # etc. that read them directly as a plain destination/date pair
+            # keep working for the (still by far most common) single-city
+            # case without needing to know legs exist at all.
+            first_leg, last_leg = legs_data[0], legs_data[-1]
+            trip_request.destination = first_leg["city"]
+            trip_request.start_date = first_leg["arrival_date"]
+            trip_request.end_date = last_leg["departure_date"]
+            trip_request.hotel_preference = first_leg["hotel_preference"]
             trip_request.save()
+            TripLeg.objects.bulk_create(
+                [
+                    TripLeg(
+                        trip_request=trip_request,
+                        order=i,
+                        city=leg["city"],
+                        arrival_date=leg["arrival_date"],
+                        departure_date=leg["departure_date"],
+                        hotel_preference=leg["hotel_preference"],
+                    )
+                    for i, leg in enumerate(legs_data)
+                ]
+            )
             build_and_persist_plan_task.delay(trip_request.pk)
             return redirect("trips:results", pk=trip_request.pk)
     else:
         form = TripRequestForm()
-    return render(request, "trips/planner.html", {"form": form, "showcase": get_showcase_plan()})
+        leg_formset = LegFormSet(prefix="legs")
+    return render(
+        request, "trips/planner.html", {"form": form, "leg_formset": leg_formset, "showcase": get_showcase_plan()}
+    )
 
 
 def results(request, pk):
@@ -50,20 +80,61 @@ def results(request, pk):
 
     people, nights = breakdown.people, breakdown.nights
     scale = people / 3
+    is_multi_city = len(breakdown.legs) > 1
     flights_display = [
         {**f, "display_price": round(f["price"] * scale)} for f in breakdown.flights
     ]
-    hotels_display = []
-    for i, h in enumerate(breakdown.hotels):
-        total = breakdown.hotel_cost if i == 0 else round(h["total"] * (nights / 8) * scale)
-        hotels_display.append({**h, "display_total": total, "per_night": round(total / nights) if nights else 0})
-    attractions_display = [
-        {**a, "display_cost": round(a["cost"] * scale)} for a in breakdown.attractions
-    ]
+    if is_multi_city:
+        # breakdown.hotels/attractions are every leg's items concatenated —
+        # the single-city logic below (one "selected" hotel absorbing the
+        # whole trip's hotel_cost, everything else a scaled alternative)
+        # doesn't apply once there's more than one destination's worth of
+        # hotels in that list. Each leg's own already-correct hotel_cost/
+        # attractions_cost (see pricing.budget._build_leg) is used instead.
+        hotels_display = []
+        attractions_display = []
+        for leg in breakdown.legs:
+            leg_nights = leg["nights"] or 1
+            for i, h in enumerate(leg["hotels"]):
+                total = leg["hotel_cost"] if i == 0 else round(h["total"] * scale)
+                hotels_display.append(
+                    {
+                        **h,
+                        "display_total": total,
+                        "per_night": round(total / leg_nights),
+                        "leg_city": leg["city"],
+                    }
+                )
+            attractions_display.extend(
+                {**a, "display_cost": round(a["cost"] * scale), "leg_city": leg["city"]} for a in leg["attractions"]
+            )
+    else:
+        hotels_display = []
+        for i, h in enumerate(breakdown.hotels):
+            total = breakdown.hotel_cost if i == 0 else round(h["total"] * (nights / 8) * scale)
+            hotels_display.append({**h, "display_total": total, "per_night": round(total / nights) if nights else 0})
+        attractions_display = [
+            {**a, "display_cost": round(a["cost"] * scale)} for a in breakdown.attractions
+        ]
     percent_used = round(float(breakdown.total) / float(trip_request.budget) * 100, 1) if trip_request.budget else 0
     per_day = round(float(breakdown.food_cost) / nights) if nights else 0
+    legs_with_total = [
+        {
+            **leg,
+            "total": leg["hotel_cost"]
+            + leg["attractions_cost"]
+            + leg["food_cost"]
+            + leg["transport_cost"]
+            + leg["transfer_cost"]
+            + leg["visa_cost"]
+            + leg["sim_cost"],
+        }
+        for leg in breakdown.legs
+    ]
 
     context = {
+        "is_multi_city": is_multi_city,
+        "legs": legs_with_total,
         "transfer_leg": round(float(breakdown.transfer_cost) / 2),
         "transport_total": breakdown.transfer_cost + breakdown.transport_cost,
         "per_day_lunch": round(per_day * 0.38),
@@ -92,8 +163,11 @@ def optimize(request, pk):
     optimized = optimize_plan(plan, clients)
     if optimized is not plan:
         trip_request.travel_style = optimized.inputs.travel_style
-        trip_request.hotel_preference = optimized.inputs.hotel_preference
+        trip_request.hotel_preference = optimized.inputs.legs[0].hotel_preference
         trip_request.save(update_fields=["travel_style", "hotel_preference"])
+        for leg, leg_input in zip(trip_request.legs.all(), optimized.inputs.legs):
+            leg.hotel_preference = leg_input.hotel_preference
+            leg.save(update_fields=["hotel_preference"])
         persist_plan(trip_request, optimized)
         messages.success(request, "Plan optimized for your budget.")
     else:

@@ -14,7 +14,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from trips.forms import TripRequestForm
+from trips.forms import LegFormSet, TripRequestForm
 from trips.models import BudgetBreakdown, SavedTrip, TripRequest
 from trips.services import (
     SHOWCASE_CACHE_KEY,
@@ -29,24 +29,64 @@ User = get_user_model()
 
 
 def trip_form_data(**overrides):
+    """Old flat destination/start_date/end_date/hotel_preference kwargs are
+    still accepted and translated onto leg 0 — every existing test call
+    site that overrides one of those keeps working unchanged, since the
+    planner form is now TripRequestForm (trip-level fields) plus LegFormSet
+    (one destination each) submitted together.
+    """
     start = date.today() + timedelta(days=200)
     end = start + timedelta(days=8)
+    leg_field_map = {
+        "destination": "city",
+        "start_date": "arrival_date",
+        "end_date": "departure_date",
+        "hotel_preference": "hotel_preference",
+    }
+    leg_overrides = {leg_field_map[k]: overrides.pop(k) for k in list(overrides) if k in leg_field_map}
+
     data = {
         "departure": "Dar es Salaam",
-        "destination": "Istanbul, Türkiye",
         "nationality": "Tanzanian",
         "purpose": "Holiday",
-        "start_date": start.isoformat(),
-        "end_date": end.isoformat(),
         "adults": 2,
         "children": 1,
         "travel_style": "balanced",
-        "hotel_preference": "3–4 Star Hotel",
         "interests": "History, food",
         "currency": "USD",
         "budget": 5000,
+        "legs-TOTAL_FORMS": "1",
+        "legs-INITIAL_FORMS": "0",
+        "legs-MIN_NUM_FORMS": "1",
+        "legs-MAX_NUM_FORMS": "1000",
+        "legs-0-city": "Istanbul, Türkiye",
+        "legs-0-arrival_date": start.isoformat(),
+        "legs-0-departure_date": end.isoformat(),
+        "legs-0-hotel_preference": "3–4 Star Hotel",
     }
+    for field, value in leg_overrides.items():
+        data[f"legs-0-{field}"] = value
     data.update(overrides)
+    return data
+
+
+def leg_formset_data(**leg_overrides):
+    """Bare LegFormSet POST data (no trip-level fields) for tests that
+    exercise the formset directly rather than the combined planner POST.
+    """
+    start = date.today() + timedelta(days=200)
+    end = start + timedelta(days=8)
+    data = {
+        "legs-TOTAL_FORMS": "1",
+        "legs-INITIAL_FORMS": "0",
+        "legs-MIN_NUM_FORMS": "1",
+        "legs-MAX_NUM_FORMS": "1000",
+        "legs-0-city": "Istanbul, Türkiye",
+        "legs-0-arrival_date": start.isoformat(),
+        "legs-0-departure_date": end.isoformat(),
+        "legs-0-hotel_preference": "3–4 Star Hotel",
+    }
+    data.update(leg_overrides)
     return data
 
 
@@ -55,46 +95,102 @@ class TripRequestFormTests(TestCase):
         form = TripRequestForm(data=trip_form_data())
         self.assertTrue(form.is_valid(), form.errors)
 
+
+class LegFormSetTests(TestCase):
+    """Date validation lives here now, not on TripRequestForm — see
+    trips.forms.BaseLegFormSet.clean().
+    """
+
+    def test_valid_single_leg_is_accepted(self):
+        formset = LegFormSet(data=leg_formset_data(), prefix="legs")
+        self.assertTrue(formset.is_valid(), formset.errors)
+
     def test_return_date_before_departure_is_rejected(self):
         start = date.today() + timedelta(days=200)
-        form = TripRequestForm(
-            data=trip_form_data(start_date=start.isoformat(), end_date=(start - timedelta(days=1)).isoformat())
+        formset = LegFormSet(
+            data=leg_formset_data(
+                **{"legs-0-arrival_date": start.isoformat(), "legs-0-departure_date": (start - timedelta(days=1)).isoformat()}
+            ),
+            prefix="legs",
         )
-        self.assertFalse(form.is_valid())
+        self.assertFalse(formset.is_valid())
 
     def test_return_date_same_as_departure_is_rejected(self):
         start = date.today() + timedelta(days=200)
-        form = TripRequestForm(data=trip_form_data(start_date=start.isoformat(), end_date=start.isoformat()))
-        self.assertFalse(form.is_valid())
+        formset = LegFormSet(
+            data=leg_formset_data(**{"legs-0-arrival_date": start.isoformat(), "legs-0-departure_date": start.isoformat()}),
+            prefix="legs",
+        )
+        self.assertFalse(formset.is_valid())
 
     def test_departure_date_in_the_past_is_rejected(self):
         past = date.today() - timedelta(days=1)
-        form = TripRequestForm(
-            data=trip_form_data(start_date=past.isoformat(), end_date=(past + timedelta(days=8)).isoformat())
+        formset = LegFormSet(
+            data=leg_formset_data(
+                **{
+                    "legs-0-arrival_date": past.isoformat(),
+                    "legs-0-departure_date": (past + timedelta(days=8)).isoformat(),
+                }
+            ),
+            prefix="legs",
         )
-        self.assertFalse(form.is_valid())
-        self.assertIn("Departure date can't be in the past.", form.errors["__all__"])
+        self.assertFalse(formset.is_valid())
+        self.assertIn("The first destination's arrival date can't be in the past.", formset.non_form_errors())
 
-    def test_return_date_in_the_past_is_rejected(self):
-        # Both dates in the past also trips the departure-date check, so use
-        # a departure of today with a return date before it.
-        past = date.today() - timedelta(days=1)
-        form = TripRequestForm(data=trip_form_data(start_date=date.today().isoformat(), end_date=past.isoformat()))
-        self.assertFalse(form.is_valid())
-        self.assertIn("Return date can't be in the past.", form.errors["__all__"])
-
-    def test_todays_date_is_accepted_as_departure(self):
+    def test_todays_date_is_accepted_as_arrival(self):
         today = date.today()
-        form = TripRequestForm(
-            data=trip_form_data(start_date=today.isoformat(), end_date=(today + timedelta(days=8)).isoformat())
+        formset = LegFormSet(
+            data=leg_formset_data(
+                **{"legs-0-arrival_date": today.isoformat(), "legs-0-departure_date": (today + timedelta(days=8)).isoformat()}
+            ),
+            prefix="legs",
         )
-        self.assertTrue(form.is_valid(), form.errors)
+        self.assertTrue(formset.is_valid(), formset.errors)
 
     def test_date_widgets_advertise_todays_date_as_the_minimum(self):
-        form = TripRequestForm()
+        formset = LegFormSet(prefix="legs")
         today = date.today().isoformat()
-        self.assertEqual(form.fields["start_date"].widget.attrs["min"], today)
-        self.assertEqual(form.fields["end_date"].widget.attrs["min"], today)
+        self.assertEqual(formset.forms[0].fields["arrival_date"].widget.attrs["min"], today)
+        self.assertEqual(formset.forms[0].fields["departure_date"].widget.attrs["min"], today)
+
+    def test_at_least_one_destination_is_required(self):
+        data = leg_formset_data()
+        data["legs-0-city"] = ""
+        data["legs-0-arrival_date"] = ""
+        data["legs-0-departure_date"] = ""
+        formset = LegFormSet(data=data, prefix="legs")
+        self.assertFalse(formset.is_valid())
+
+    def test_second_legs_arrival_before_first_legs_departure_is_rejected(self):
+        start = date.today() + timedelta(days=200)
+        data = leg_formset_data(
+            **{
+                "legs-TOTAL_FORMS": "2",
+                "legs-0-arrival_date": start.isoformat(),
+                "legs-0-departure_date": (start + timedelta(days=4)).isoformat(),
+                "legs-1-city": "Nairobi, Kenya",
+                "legs-1-arrival_date": (start + timedelta(days=3)).isoformat(),  # before leg 0 departs
+                "legs-1-departure_date": (start + timedelta(days=7)).isoformat(),
+            }
+        )
+        formset = LegFormSet(data=data, prefix="legs")
+        self.assertFalse(formset.is_valid())
+        self.assertIn("Destination 2's arrival date can't be before you leave destination 1.", formset.non_form_errors())
+
+    def test_valid_two_leg_route_is_accepted(self):
+        start = date.today() + timedelta(days=200)
+        data = leg_formset_data(
+            **{
+                "legs-TOTAL_FORMS": "2",
+                "legs-0-arrival_date": start.isoformat(),
+                "legs-0-departure_date": (start + timedelta(days=4)).isoformat(),
+                "legs-1-city": "Nairobi, Kenya",
+                "legs-1-arrival_date": (start + timedelta(days=4)).isoformat(),
+                "legs-1-departure_date": (start + timedelta(days=8)).isoformat(),
+            }
+        )
+        formset = LegFormSet(data=data, prefix="legs")
+        self.assertTrue(formset.is_valid(), formset.errors)
 
 
 @override_settings(CACHES=LOCMEM_CACHE)
