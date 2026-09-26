@@ -82,3 +82,21 @@ trippilot/
 - **Security**: CSRF on all forms (default Django), never expose provider API keys client-side, rate-limit the planner endpoint per user/IP to avoid quota exhaustion on paid APIs.
 
 ---
+
+## 6. Planned Feature Requirements (Phase 2)
+
+Not yet implemented — captured here as the spec to build against next.
+
+### 6.1 Multi-City & Multi-Destination Trip Planning
+
+- **Route structure**: support trips involving multiple destinations (e.g. Cape Town → Istanbul), not just a single origin/destination pair.
+- **Dynamic accommodation/room allocation**: let users specify a different room configuration per destination (e.g. a couple's room in one city, a family room with children in the next).
+
+### 6.2 Authentication & User Flow Overhaul
+
+- **Optional pre-planning**: let users build and submit a trip plan *before* being forced to create an account or log in.
+- **Post-submission account creation**: after a plan is submitted, prompt the user to register (email + password) to save and revisit it later, rather than requiring signup up front.
+- **Email as primary username**: replace username-based login with email — easier for users to remember.
+- **Password recovery**: add a "Forgot password" / email-based recovery flow.
+
+---
