@@ -90,6 +90,10 @@ MIDDLEWARE = [
 SITE_ID = 1
 
 AUTHENTICATION_BACKENDS = [
+    # Tried first: the public-facing login form asks for email now. Plain
+    # ModelBackend (username) stays registered after it so accounts created
+    # before this change — no email on file — can still log in.
+    "accounts.backends.EmailBackend",
     "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
 ]

@@ -69,24 +69,39 @@ class SignupViewTests(TestCase):
         response = self.client.post(
             reverse("accounts:signup"),
             data={
-                "username": "freshtraveller",
                 "email": "fresh@example.com",
                 "password1": "Sup3rSecurePass!23",
                 "password2": "Sup3rSecurePass!23",
             },
         )
         self.assertRedirects(response, reverse("accounts:dashboard"))
-        user = User.objects.get(username="freshtraveller")
-        self.assertEqual(user.email, "fresh@example.com")
+        user = User.objects.get(email="fresh@example.com")
+        # No username field on the form any more — it's auto-derived.
+        self.assertEqual(user.username, "fresh")
         response = self.client.get(reverse("accounts:dashboard"))
         self.assertEqual(response.status_code, 200)
+
+    def test_username_is_not_a_form_field(self):
+        response = self.client.get(reverse("accounts:signup"))
+        self.assertNotIn("username", response.context["form"].fields)
+
+    def test_generated_username_gets_a_numeric_suffix_on_collision(self):
+        User.objects.create_user(username="fresh", email="first@example.com", password="pw12345!")
+        self.client.post(
+            reverse("accounts:signup"),
+            data={
+                "email": "fresh@example.com",
+                "password1": "Sup3rSecurePass!23",
+                "password2": "Sup3rSecurePass!23",
+            },
+        )
+        self.assertTrue(User.objects.filter(username="fresh2", email="fresh@example.com").exists())
 
     def test_mismatched_passwords_do_not_create_user(self):
         before = User.objects.count()
         self.client.post(
             reverse("accounts:signup"),
             data={
-                "username": "baduser",
                 "email": "bad@example.com",
                 "password1": "Sup3rSecurePass!23",
                 "password2": "DifferentPass!45",
@@ -98,7 +113,7 @@ class SignupViewTests(TestCase):
         before = User.objects.count()
         response = self.client.post(
             reverse("accounts:signup"),
-            data={"username": "noemail", "password1": "Sup3rSecurePass!23", "password2": "Sup3rSecurePass!23"},
+            data={"password1": "Sup3rSecurePass!23", "password2": "Sup3rSecurePass!23"},
         )
         self.assertEqual(User.objects.count(), before)
         self.assertFormError(response.context["form"], "email", "This field is required.")
@@ -109,7 +124,6 @@ class SignupViewTests(TestCase):
         response = self.client.post(
             reverse("accounts:signup"),
             data={
-                "username": "second",
                 "email": "taken@example.com",
                 "password1": "Sup3rSecurePass!23",
                 "password2": "Sup3rSecurePass!23",
@@ -123,6 +137,37 @@ class SignupViewTests(TestCase):
         self.client.force_login(user)
         response = self.client.get(reverse("accounts:signup"))
         self.assertRedirects(response, reverse("accounts:dashboard"))
+
+
+class EmailLoginTests(TestCase):
+    def test_login_with_email_succeeds(self):
+        User.objects.create_user(username="autogen1", email="loginme@example.com", password="Sup3rSecurePass!23")
+        logged_in = self.client.login(username="loginme@example.com", password="Sup3rSecurePass!23")
+        self.assertTrue(logged_in)
+
+    def test_login_with_email_is_case_insensitive(self):
+        User.objects.create_user(username="autogen2", email="MixedCase@Example.com", password="Sup3rSecurePass!23")
+        logged_in = self.client.login(username="mixedcase@example.com", password="Sup3rSecurePass!23")
+        self.assertTrue(logged_in)
+
+    def test_legacy_account_with_no_email_still_logs_in_by_username(self):
+        # Simulates one of the pre-existing accounts from before this
+        # change — created with a username and no email on file at all.
+        User.objects.create_user(username="oldschool", password="Sup3rSecurePass!23")
+        logged_in = self.client.login(username="oldschool", password="Sup3rSecurePass!23")
+        self.assertTrue(logged_in)
+
+    def test_wrong_password_fails_via_the_login_view(self):
+        User.objects.create_user(username="autogen3", email="wrongpw@example.com", password="Sup3rSecurePass!23")
+        response = self.client.post(
+            reverse("accounts:login"), data={"username": "wrongpw@example.com", "password": "NotTheRightOne!1"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "That didn't match any account.")
+
+    def test_login_field_is_labelled_email(self):
+        response = self.client.get(reverse("accounts:login"))
+        self.assertContains(response, ">Email<")
 
 
 class DashboardViewTests(TestCase):

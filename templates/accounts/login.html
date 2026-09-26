@@ -3,7 +3,7 @@
 {% block content %}
 <section class="planner section">
   <div class="section-title"><div><span class="eyebrow">WELCOME BACK</span><h2>Log in</h2></div></div>
-  {% if form.errors %}<div class="alert warn">Your username and password didn't match. Please try again.</div>{% endif %}
+  {% if form.errors %}<div class="alert warn">That didn't match any account. Please try again.</div>{% endif %}
   <form method="post" class="form-grid" style="max-width:420px">
     {% csrf_token %}
     {% for field in form %}
