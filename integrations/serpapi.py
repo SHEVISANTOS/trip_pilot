@@ -66,11 +66,11 @@ def _flight_stops(item: dict) -> str:
     return "Direct" if stops == 0 else f"{stops} stop{'s' if stops > 1 else ''}"
 
 
-def _flight_duration(item: dict) -> str:
+def _flight_duration(item: dict, suffix: str = " outbound") -> str:
     minutes = item.get("total_duration")
     if not minutes:
         return "Duration varies"
-    return f"Approx. {minutes // 60}h {minutes % 60:02d}m outbound"
+    return f"Approx. {minutes // 60}h {minutes % 60:02d}m{suffix}"
 
 
 class SerpApiFlightsClient(BaseClient):
@@ -138,6 +138,70 @@ class SerpApiFlightsClient(BaseClient):
 
         cache_key = self.make_cache_key("serpapi_flights", origin, destination, start_date, end_date, adults)
         return self.call("serpapi_flights", fetch, None, cache_key, settings.CACHE_TTL_SERPAPI)
+
+    def search_one_way_flights(
+        self, origin: str, destination: str, adults: int, departure_date: date | None
+    ) -> FlightOffer | None:
+        """One genuine one-way search (type=2) — used for each hop of a
+        multi-city chain. Verified live: unlike the round-trip tier above,
+        `price` here is the complete, final one-way fare (Google itself
+        labels it `type: "One way"`), not an ambiguous outbound-only
+        portion of a round trip — so there's no honesty tradeoff in using
+        it directly, real airline names and flight numbers included
+        (confirmed live: "Kenya Airways KQ 487", not a generic estimate).
+        """
+
+        def fetch():
+            if not settings.SERPAPI_KEY:
+                raise NotConfigured("SERPAPI_KEY not set")
+            if not departure_date:
+                raise ValueError("SerpApi one-way flights needs a departure date")
+            origin_code = resolve_iata(origin)
+            destination_code = resolve_iata(destination)
+            if not origin_code or not destination_code:
+                raise ValueError(
+                    f"could not resolve segment {origin!r} -> {destination!r} to IATA codes "
+                    f"(got {origin_code!r} -> {destination_code!r})"
+                )
+
+            resp = requests.get(
+                SEARCH_URL,
+                params={
+                    "engine": "google_flights",
+                    "departure_id": origin_code,
+                    "arrival_id": destination_code,
+                    "outbound_date": departure_date.isoformat(),
+                    "type": 2,
+                    "adults": max(adults, 1),
+                    "currency": "USD",
+                    "api_key": settings.SERPAPI_KEY,
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            if payload.get("search_metadata", {}).get("status") != "Success":
+                raise ValueError(f"SerpApi one-way flight search did not succeed: {payload.get('search_metadata')}")
+
+            items = (payload.get("best_flights") or []) + (payload.get("other_flights") or [])
+            items = [item for item in items if item.get("price")]
+            if not items:
+                return None
+            items.sort(key=lambda item: item["price"])
+            cheapest = items[0]
+
+            return FlightOffer(
+                airline=_flight_airline(cheapest.get("flights") or []),
+                route=f"{origin_code} → {destination_code}",
+                stops=_flight_stops(cheapest),
+                duration=_flight_duration(cheapest, suffix=""),
+                price=float(cheapest["price"]),
+                label="Cheapest",
+                booking_url=payload.get("search_metadata", {}).get("google_flights_url", ""),
+            )
+
+        cache_key = self.make_cache_key("serpapi_flights_oneway", origin, destination, departure_date, adults)
+        return self.call("serpapi_flights_oneway", fetch, None, cache_key, settings.CACHE_TTL_SERPAPI)
 
 
 class SerpApiHotelsClient(BaseClient):

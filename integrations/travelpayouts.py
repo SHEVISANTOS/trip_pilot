@@ -161,6 +161,69 @@ class TravelpayoutsClient(BaseClient):
         )
         return self.call("travelpayouts", fetch, None, cache_key, settings.CACHE_TTL_FLIGHTS_HOTELS)
 
+    def search_one_way_flights(self, origin, destination, adults, departure_date) -> FlightOffer | None:
+        """Genuine one-way search (one_way=true) — used for each hop of a
+        multi-city chain. Verified live (DAR->IST): returns a real one-way
+        fare ($387, Oman Air) with its own real Aviasales link, same as the
+        round-trip tier's data quality, just for a single leg instead of a
+        there-and-back pair.
+        """
+
+        def fetch():
+            if not settings.TRAVELPAYOUTS_TOKEN:
+                raise NotConfigured("TRAVELPAYOUTS_TOKEN not set")
+            if not departure_date:
+                raise ValueError("Travelpayouts one-way flights needs a departure date")
+            origin_code = resolve_iata(origin)
+            destination_code = resolve_iata(destination)
+            if not origin_code or not destination_code:
+                raise ValueError(
+                    f"could not resolve segment {origin!r} -> {destination!r} to IATA codes "
+                    f"(got {origin_code!r} -> {destination_code!r})"
+                )
+
+            attempts = [
+                {"departure_at": departure_date.isoformat()},
+                {"departure_at": departure_date.strftime("%Y-%m")},
+                {},
+            ]
+            for extra_params in attempts:
+                resp = requests.get(
+                    PRICES_URL,
+                    params={
+                        "origin": origin_code,
+                        "destination": destination_code,
+                        "currency": "usd",
+                        "one_way": "true",
+                        "sorting": "price",
+                        "limit": 1,
+                        "token": settings.TRAVELPAYOUTS_TOKEN,
+                        **extra_params,
+                    },
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                rows = resp.json().get("data") or []
+                if rows:
+                    row = rows[0]
+                    airlines = _airline_names()
+                    code = row.get("airline", "")
+                    transfers = row.get("transfers", 0)
+                    link = row.get("link") or ""
+                    return FlightOffer(
+                        airline=airlines.get(code, code or "Airline"),
+                        route=f"{origin_code} → {destination_code}",
+                        stops="Direct" if transfers == 0 else f"{transfers} stop{'s' if transfers > 1 else ''}",
+                        duration=_format_duration(row.get("duration_to")).replace(" each way", ""),
+                        price=float(row["price"]),
+                        label="Cheapest",
+                        booking_url=f"https://www.aviasales.com{link}" if link else "",
+                    )
+            return None
+
+        cache_key = self.make_cache_key("travelpayouts_oneway", origin, destination, departure_date)
+        return self.call("travelpayouts_oneway", fetch, None, cache_key, settings.CACHE_TTL_FLIGHTS_HOTELS)
+
     def _to_offers(self, rows, origin_code, destination_code) -> list[FlightOffer]:
         airlines = _airline_names()
         offers = []

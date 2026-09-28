@@ -200,6 +200,43 @@ class TravelpayoutsClientTests(CacheIsolatedTestCase):
         self.assertEqual(IntegrationCallLog.objects.filter(provider="travelpayouts", success=False).count(), 1)
 
 
+@override_settings(TRAVELPAYOUTS_TOKEN="test-token", CACHES=LOCMEM_CACHE)
+class TravelpayoutsOneWayClientTests(CacheIsolatedTestCase):
+    """search_one_way_flights() — used for each hop of a multi-city chain,
+    see pricing.budget._build_flight_chain."""
+
+    @responses.activate
+    def test_maps_response_to_a_single_one_way_offer(self):
+        responses.add(responses.GET, TP_URL, json={"data": [tp_row(price=387, transfers=1)]}, status=200)
+        offer = TravelpayoutsClient().search_one_way_flights(
+            "Dar es Salaam", "Istanbul, Türkiye", 1, date(2027, 5, 10)
+        )
+        self.assertEqual(offer.price, 387.0)
+        self.assertEqual(offer.route, "DAR → IST")
+        self.assertEqual(offer.label, "Cheapest")
+        self.assertNotIn("each way", offer.duration)
+
+    @responses.activate
+    def test_sends_one_way_true(self):
+        responses.add(responses.GET, TP_URL, json={"data": [tp_row()]}, status=200)
+        TravelpayoutsClient().search_one_way_flights("Dar es Salaam", "Istanbul, Türkiye", 1, date(2027, 5, 10))
+        self.assertIn("one_way=true", responses.calls[0].request.url)
+
+    @responses.activate
+    def test_missing_departure_date_returns_none_without_calling_api(self):
+        offer = TravelpayoutsClient().search_one_way_flights("Dar es Salaam", "Istanbul, Türkiye", 1, None)
+        self.assertIsNone(offer)
+        self.assertEqual(len(responses.calls), 0)
+
+    @responses.activate
+    def test_no_cached_price_returns_none(self):
+        responses.add(responses.GET, TP_URL, json={"data": []}, status=200)
+        offer = TravelpayoutsClient().search_one_way_flights(
+            "Dar es Salaam", "Istanbul, Türkiye", 1, date(2027, 5, 10)
+        )
+        self.assertIsNone(offer)
+
+
 @override_settings(OPENTRIPMAP_API_KEY="", CACHES=LOCMEM_CACHE)
 class OpenTripMapClientFallbackTests(CacheIsolatedTestCase):
     def test_unconfigured_falls_back_to_fixture(self):
@@ -894,6 +931,51 @@ class SerpApiFlightsClientTests(CacheIsolatedTestCase):
             "Dar es Salaam", "Istanbul, Türkiye", 2, date(2027, 5, 10), date(2027, 5, 18)
         )
         self.assertIsNone(offers)
+
+
+@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+class SerpApiOneWayFlightsClientTests(CacheIsolatedTestCase):
+    """search_one_way_flights() — used for each hop of a multi-city chain,
+    see pricing.budget._build_flight_chain."""
+
+    @responses.activate
+    def test_maps_response_to_a_single_cheapest_one_way_offer(self):
+        responses.add(responses.GET, SERPAPI_URL, json=serp_flight_search_response(prices=[341, 400]), status=200)
+        offer = SerpApiFlightsClient().search_one_way_flights(
+            "Dar es Salaam", "Cape Town, South Africa", 1, date(2027, 6, 1)
+        )
+        self.assertEqual(offer.price, 341.0)
+        self.assertEqual(offer.route, "DAR → CPT")
+        self.assertEqual(offer.airline, "Emirates")
+        self.assertEqual(offer.label, "Cheapest")
+        self.assertNotIn("outbound", offer.duration)
+        self.assertEqual(offer.booking_url, "https://www.google.com/travel/flights?x")
+
+    @responses.activate
+    def test_sends_type_2(self):
+        responses.add(responses.GET, SERPAPI_URL, json=serp_flight_search_response(prices=[341]), status=200)
+        SerpApiFlightsClient().search_one_way_flights("Dar es Salaam", "Cape Town, South Africa", 1, date(2027, 6, 1))
+        self.assertIn("type=2", responses.calls[0].request.url)
+        self.assertNotIn("return_date", responses.calls[0].request.url)
+
+    @responses.activate
+    def test_missing_departure_date_returns_none_without_calling_api(self):
+        offer = SerpApiFlightsClient().search_one_way_flights("Dar es Salaam", "Cape Town, South Africa", 1, None)
+        self.assertIsNone(offer)
+        self.assertEqual(len(responses.calls), 0)
+
+    @responses.activate
+    def test_no_flights_found_returns_none(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json={"search_metadata": {"status": "Success"}, "best_flights": [], "other_flights": []},
+            status=200,
+        )
+        offer = SerpApiFlightsClient().search_one_way_flights(
+            "Dar es Salaam", "Cape Town, South Africa", 1, date(2027, 6, 1)
+        )
+        self.assertIsNone(offer)
 
 
 def serp_hotel_property(name, night, total, prop_type="hotel", stars=None, rating=None):

@@ -31,6 +31,9 @@ class StubFlights:
     def search_flights(self, origin, destination, adults, start_date=None, end_date=None):
         return [FlightOffer("Test Air", f"{origin} → {destination}", "1 stop", "10 hrs", 550, "Cheapest")]
 
+    def search_one_way_flights(self, origin, destination, adults, departure_date=None):
+        return None
+
 
 class StubActivities:
     def search_attractions(self, destination):
@@ -64,6 +67,9 @@ class StubFlightsBackup:
     """
 
     def search_flights(self, origin, destination, adults, start_date=None, end_date=None):
+        return None
+
+    def search_one_way_flights(self, origin, destination, adults, departure_date=None):
         return None
 
 
@@ -282,6 +288,89 @@ class BuildPlanTests(unittest.TestCase):
         self.assertLess(cheap_plan.food_cost, pricey_plan.food_cost)
         self.assertLess(cheap_plan.transport_cost, pricey_plan.transport_cost)
         self.assertIn("cost-of-living", [i.detail for i in cheap_plan.items if i.label == "Food"][0])
+
+
+def make_multi_leg_inputs(**overrides):
+    legs = overrides.pop(
+        "legs",
+        [
+            LegInput(city="Cape Town, South Africa", arrival_date=date(2027, 6, 1), departure_date=date(2027, 6, 5)),
+            LegInput(city="Istanbul, Türkiye", arrival_date=date(2027, 6, 5), departure_date=date(2027, 6, 10)),
+        ],
+    )
+    return make_inputs(legs=legs, **overrides)
+
+
+class MultiCityBuildPlanTests(unittest.TestCase):
+    """StubFlights/StubFlightsBackup's search_one_way_flights both return
+    None by default (see their class definitions above), so unless a test
+    overrides one, every segment falls through to estimate_flight_segment()
+    — the same three-tier cascade (SerpApi one-way -> Travelpayouts one-way
+    -> distance estimate) as the single-city flight cascade, just per hop.
+    """
+
+    def test_flight_chain_has_one_segment_per_hop(self):
+        plan = build_plan(make_multi_leg_inputs(), make_clients())
+        # DAR->CPT, CPT->IST, IST->DAR: 2 legs -> 3 segments.
+        self.assertEqual(len(plan.flights), 3)
+        self.assertEqual(plan.flights[0].route, "DAR → CPT")
+        self.assertEqual(plan.flights[1].route, "CPT → IST")
+        self.assertEqual(plan.flights[2].route, "IST → DAR")
+
+    def test_flight_cost_sums_every_segment(self):
+        plan = build_plan(make_multi_leg_inputs(), make_clients())
+        self.assertEqual(plan.flight_cost, round(sum(f.price for f in plan.flights) * plan.people))
+
+    def test_serpapi_one_way_is_tried_first_per_segment(self):
+        clients = make_clients()
+        clients.flights_backup.search_one_way_flights = lambda origin, destination, adults, departure_date=None: (
+            FlightOffer("Kenya Airways", f"{origin} → {destination}", "Direct", "Approx. 2h", 200, "Cheapest")
+        )
+        clients.flights.search_one_way_flights = lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("Travelpayouts should not be called when SerpApi (tier 1) has a fare")
+        )
+        plan = build_plan(make_multi_leg_inputs(), clients)
+        self.assertTrue(all(f.airline == "Kenya Airways" for f in plan.flights))
+
+    def test_travelpayouts_one_way_is_used_when_serpapi_has_nothing(self):
+        clients = make_clients()
+        clients.flights.search_one_way_flights = lambda origin, destination, adults, departure_date=None: (
+            FlightOffer("Oman Air", f"{origin} → {destination}", "1 stop", "Approx. 6h", 300, "Cheapest")
+        )
+        plan = build_plan(make_multi_leg_inputs(), clients)
+        self.assertTrue(all(f.airline == "Oman Air" for f in plan.flights))
+
+    def test_falls_back_to_distance_estimate_when_no_live_segment_data(self):
+        plan = build_plan(make_multi_leg_inputs(), make_clients())
+        self.assertTrue(all(f.airline == "Estimated fare" for f in plan.flights))
+        self.assertTrue(all(f.price > 0 for f in plan.flights))
+
+    def test_nights_and_hotels_sum_across_legs(self):
+        plan = build_plan(make_multi_leg_inputs(), make_clients())
+        self.assertEqual(plan.nights, 9)  # 4 nights Cape Town + 5 nights Istanbul
+        self.assertEqual(len(plan.legs), 2)
+        self.assertEqual(plan.legs[0].nights, 4)
+        self.assertEqual(plan.legs[1].nights, 5)
+
+    def test_visa_cost_sums_both_legs_even_when_countries_differ(self):
+        clients = make_clients()
+        calls = []
+
+        def get_visa_info(nationality, destination):
+            calls.append(destination)
+            cost = 0 if "Cape Town" in destination else 60
+            return VisaInfo("Type", "Method", "Stay", cost, "TAG")
+
+        clients.visa.get_visa_info = get_visa_info
+        plan = build_plan(make_multi_leg_inputs(), clients)
+        self.assertEqual(set(calls), {"Cape Town, South Africa", "Istanbul, Türkiye"})
+        self.assertEqual(plan.visa_cost, 60 * plan.people)
+
+    def test_is_multi_city_true_for_two_legs_false_for_one(self):
+        multi = build_plan(make_multi_leg_inputs(), make_clients())
+        single = build_plan(make_inputs(), make_clients())
+        self.assertTrue(multi.inputs.is_multi_city)
+        self.assertFalse(single.inputs.is_multi_city)
 
 
 class CostOfLivingIndexTests(unittest.TestCase):

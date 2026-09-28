@@ -494,13 +494,23 @@ def _build_flight_chain(inputs: TripInputs, people: int, mult: float, exchange_r
         return [replace(f, price=round(f.price * exchange_rate, 2)) for f in flights]
 
     # Multi-city: a chain of one-way hops (home -> leg 1 -> leg 2 -> ... ->
-    # home). See estimate_flight_segment()'s docstring for why every hop
-    # uses the same real, calibrated distance estimate rather than mixing
-    # in a live round-trip price that can't honestly be split into one leg.
+    # home), each a genuine one-way search — SerpApi and Travelpayouts both
+    # support type=2/one_way=true and return a complete, final one-way fare
+    # with a real airline (verified live: "Kenya Airways KQ 487", not a
+    # generic estimate), not an ambiguous slice of a round-trip price. The
+    # distance-based estimate is only the last-resort fallback per hop now.
     stops = [inputs.departure] + [leg.city for leg in legs] + [inputs.departure]
+    # dates[i] is the departure date *of* stops[i]->stops[i+1]: leaving home
+    # for leg 1 happens on leg 1's arrival date; leaving leg i for leg i+1
+    # (or leg i for home, on the last hop) happens on leg i's departure date.
+    dates = [legs[0].arrival_date] + [leg.departure_date for leg in legs]
     segments = []
-    for origin, destination in zip(stops, stops[1:]):
-        segment = estimate_flight_segment(origin, destination)
+    for origin, destination, departure_date in zip(stops, stops[1:], dates):
+        segment = (
+            clients.flights_backup.search_one_way_flights(origin, destination, people, departure_date)
+            or clients.flights.search_one_way_flights(origin, destination, people, departure_date)
+            or estimate_flight_segment(origin, destination)
+        )
         if segment:
             segments.append(replace(segment, price=round(segment.price * exchange_rate, 2)))
     return segments or sample_data_for(legs[0].city).flights
