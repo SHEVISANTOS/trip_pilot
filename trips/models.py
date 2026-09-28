@@ -12,6 +12,7 @@ PURPOSE_CHOICES = [
     ("Business", "Business"),
     ("Family Visit", "Family Visit"),
     ("Honeymoon", "Honeymoon"),
+    ("Couple", "Couple"),
 ]
 
 # Stored value stays plain text (pricing.optimizer.CHEAPEST_HOTEL_PREFERENCE
