@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import date
 
@@ -11,6 +12,7 @@ from integrations.base import BaseClient
 from integrations.esim import EsimGoClient
 from integrations.exchange import ExchangeRateClient
 from integrations.fixtures import sample_data_for
+from integrations.gemini import GeminiEstimateClient
 from integrations.hotels import LiteApiHotelClient
 from integrations.stayapi import StayApiHotelClient
 from integrations.maps import MapsClient
@@ -276,10 +278,14 @@ class TravelpayoutsOneWayClientTests(CacheIsolatedTestCase):
 
 @override_settings(OPENTRIPMAP_API_KEY="", CACHES=LOCMEM_CACHE)
 class OpenTripMapClientFallbackTests(CacheIsolatedTestCase):
-    def test_unconfigured_falls_back_to_fixture(self):
+    def test_unconfigured_returns_none_and_logs(self):
+        # Unlike before, OpenTripMapClient no longer falls back to the
+        # generic fixture internally — that decision moved up into
+        # pricing.budget's attractions cascade (Gemini, then the fixture),
+        # matching every other provider client's None-on-failure contract.
         client = OpenTripMapClient()
         result = client.search_attractions("Istanbul")
-        self.assertEqual(result, sample_data_for("Istanbul").attractions)
+        self.assertIsNone(result)
         self.assertEqual(IntegrationCallLog.objects.filter(provider="opentripmap", success=False).count(), 1)
 
 
@@ -882,10 +888,120 @@ class OpenTripMapClientTests(CacheIsolatedTestCase):
         self.assertEqual(result[0].name, "Historic Areas of Istanbul")
 
     @responses.activate
-    def test_no_results_falls_back_to_fixtures(self):
+    def test_no_results_returns_none(self):
         self._mock([])
         result = OpenTripMapClient().search_attractions("Nowhere")
-        self.assertEqual(result, sample_data_for("Nowhere").attractions)
+        self.assertIsNone(result)
+
+
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+
+
+def gemini_response(items, finish_reason="STOP"):
+    return {
+        "candidates": [
+            {"content": {"parts": [{"text": json.dumps(items)}], "role": "model"}, "finishReason": finish_reason}
+        ]
+    }
+
+
+@override_settings(GEMINI_API_KEY="", CACHES=LOCMEM_CACHE)
+class GeminiUnconfiguredTests(CacheIsolatedTestCase):
+    def test_unconfigured_returns_none_and_logs(self):
+        result = GeminiEstimateClient().estimate_attractions("Ouagadougou, Burkina Faso")
+        self.assertIsNone(result)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="gemini_attractions", success=False).count(), 1)
+
+
+@override_settings(GEMINI_API_KEY="test-gemini-key", CACHES=LOCMEM_CACHE)
+class GeminiEstimateClientTests(CacheIsolatedTestCase):
+    @responses.activate
+    def test_parses_response_into_attractions(self):
+        responses.add(
+            responses.POST,
+            GEMINI_URL,
+            json=gemini_response(
+                [
+                    {"name": "National Museum", "cost_usd": 3, "description": "History and art exhibits."},
+                    {"name": "Grand Marché", "cost_usd": 0, "description": "A bustling open-air market."},
+                ]
+            ),
+            status=200,
+        )
+        result = GeminiEstimateClient().estimate_attractions("Ouagadougou, Burkina Faso")
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0].name, "National Museum")
+        self.assertEqual(result[0].cost, 3.0)
+        self.assertIn("(AI estimate)", result[0].desc)
+        self.assertEqual(result[1].cost, 0.0)
+
+    @responses.activate
+    def test_thinking_is_disabled_in_the_request(self):
+        # gemini-2.5-flash has "thinking" on by default, which (verified
+        # live) can eat a whole small output budget before any answer text
+        # comes back — this must stay disabled or responses silently truncate.
+        responses.add(responses.POST, GEMINI_URL, json=gemini_response([]), status=200)
+        GeminiEstimateClient().estimate_attractions("Nowhere")
+        sent_body = json.loads(responses.calls[0].request.body)
+        self.assertEqual(sent_body["generationConfig"]["thinkingConfig"]["thinkingBudget"], 0)
+
+    @responses.activate
+    def test_markdown_fences_are_stripped(self):
+        payload = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [{"text": '```json\n[{"name": "Cathedral", "cost_usd": 0, "description": "A church."}]\n```'}]
+                    },
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+        responses.add(responses.POST, GEMINI_URL, json=payload, status=200)
+        result = GeminiEstimateClient().estimate_attractions("Somewhere")
+        self.assertEqual(result[0].name, "Cathedral")
+
+    @responses.activate
+    def test_empty_array_returns_none(self):
+        responses.add(responses.POST, GEMINI_URL, json=gemini_response([]), status=200)
+        result = GeminiEstimateClient().estimate_attractions("Nowhere real")
+        self.assertIsNone(result)
+
+    @responses.activate
+    def test_malformed_json_returns_none_and_logs(self):
+        payload = {"candidates": [{"content": {"parts": [{"text": "not valid json"}]}, "finishReason": "STOP"}]}
+        responses.add(responses.POST, GEMINI_URL, json=payload, status=200)
+        result = GeminiEstimateClient().estimate_attractions("Nowhere")
+        self.assertIsNone(result)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="gemini_attractions", success=False).count(), 1)
+
+    @responses.activate
+    def test_api_error_returns_none_and_logs(self):
+        responses.add(responses.POST, GEMINI_URL, status=500)
+        result = GeminiEstimateClient().estimate_attractions("Nowhere")
+        self.assertIsNone(result)
+        self.assertEqual(IntegrationCallLog.objects.filter(provider="gemini_attractions", success=False).count(), 1)
+
+    @responses.activate
+    def test_caps_at_six_and_marks_the_sixth_optional(self):
+        items = [{"name": f"Sight {i}", "cost_usd": 5, "description": "desc"} for i in range(10)]
+        responses.add(responses.POST, GEMINI_URL, json=gemini_response(items), status=200)
+        result = GeminiEstimateClient().estimate_attractions("Somewhere")
+        self.assertEqual(len(result), 6)
+        for a in result[:5]:
+            self.assertFalse(a.optional)
+        self.assertTrue(result[5].optional)
+
+    @responses.activate
+    def test_unnamed_items_are_dropped(self):
+        responses.add(
+            responses.POST,
+            GEMINI_URL,
+            json=gemini_response([{"name": "", "cost_usd": 0, "description": "no name"}, {"name": "Real Place", "cost_usd": 0, "description": "desc"}]),
+            status=200,
+        )
+        result = GeminiEstimateClient().estimate_attractions("Somewhere")
+        self.assertEqual([a.name for a in result], ["Real Place"])
 
 
 SERPAPI_URL = "https://serpapi.com/search.json"

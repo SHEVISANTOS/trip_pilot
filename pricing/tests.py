@@ -56,6 +56,15 @@ class StubActivitiesSerp:
         return None
 
 
+class StubGemini:
+    """Mirrors GeminiEstimateClient (tier 3, last resort); None means
+    build_plan() falls through to the generic fixture data.
+    """
+
+    def estimate_attractions(self, destination):
+        return None
+
+
 class StubVisa:
     def get_visa_info(self, nationality, destination):
         return VisaInfo("Tourist entry requirement", "Verify before departure.", "Check stay length", 60, "VERIFY")
@@ -133,6 +142,7 @@ def make_clients():
         flights_backup=StubFlightsBackup(),
         activities=StubActivities(),
         activities_serp=StubActivitiesSerp(),
+        gemini=StubGemini(),
         visa=StubVisa(),
         esim=StubEsim(),
         hotels=StubHotels(),

@@ -438,8 +438,11 @@ def _build_leg(leg: LegInput, inputs: TripInputs, people: int, mult: float, exch
         or clients.hotels_backup.search_hotels(*hotel_args, rooms=leg.rooms)
         or estimate_hotels(leg.city, nights)
     )
-    attractions = clients.activities_serp.search_attractions(leg.city) or clients.activities.search_attractions(
-        leg.city
+    attractions = (
+        clients.activities_serp.search_attractions(leg.city)
+        or clients.activities.search_attractions(leg.city)
+        or clients.gemini.estimate_attractions(leg.city)
+        or sample_data_for(leg.city).attractions
     )
     esim_bundle = clients.esim.get_bundle(leg.city, nights)
 

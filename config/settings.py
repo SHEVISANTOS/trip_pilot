@@ -191,6 +191,10 @@ CACHE_TTL_MAPS = env.int("CACHE_TTL_MAPS", default=30 * 24 * 60 * 60)
 # Much longer than CACHE_TTL_FLIGHTS_HOTELS — SerpApi's 100/month cap makes
 # quota, not freshness, the binding constraint here.
 CACHE_TTL_SERPAPI = env.int("CACHE_TTL_SERPAPI", default=24 * 60 * 60)
+# An AI estimate for a given destination doesn't change day to day, and this
+# is the last-resort tier (see integrations/gemini.py) — cached as long as
+# CACHE_TTL_SERPAPI to keep it a rare call, not a per-plan one.
+CACHE_TTL_GEMINI = env.int("CACHE_TTL_GEMINI", default=24 * 60 * 60)
 
 # Celery — trips.tasks.build_and_persist_plan_task runs the multi-provider
 # plan generation off the request thread. `or REDIS_URL` (not env()'s
@@ -254,6 +258,11 @@ STAYAPI_KEY = env("STAYAPI_KEY", default="")
 # (CACHE_TTL_SERPAPI below) and only reached when the primary source above it
 # in the cascade has nothing.
 SERPAPI_KEY = env("SERPAPI_KEY", default="")
+# Google Gemini — last-resort AI estimate for attractions when every real
+# provider (SerpApi's "Top sights", then OpenTripMap) has nothing for the
+# destination. Unset by default (falls back to the generic fixture data
+# instead, unchanged prior behavior). See integrations/gemini.py.
+GEMINI_API_KEY = env("GEMINI_API_KEY", default="")
 # SearchApi.io — a second, independent key for the same three engines above,
 # used by integrations/google_travel.py to fail over when SerpApi is out of
 # quota or unreachable. Unset by default (SerpApi-only, unchanged behavior).

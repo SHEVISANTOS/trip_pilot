@@ -11,7 +11,6 @@ from django.conf import settings
 
 from integrations.base import BaseClient, NotConfigured
 from integrations.dataclasses import Attraction
-from integrations.fixtures import sample_data_for
 
 GEONAME_URL = "https://api.opentripmap.com/0.1/en/places/geoname"
 RADIUS_URL = "https://api.opentripmap.com/0.1/en/places/radius"
@@ -87,7 +86,7 @@ def _place_url(props: dict) -> str:
 
 
 class OpenTripMapClient(BaseClient):
-    def search_attractions(self, destination: str) -> list[Attraction]:
+    def search_attractions(self, destination: str) -> list[Attraction] | None:
         def fetch():
             if not settings.OPENTRIPMAP_API_KEY:
                 raise NotConfigured("OPENTRIPMAP_API_KEY not set")
@@ -166,7 +165,5 @@ class OpenTripMapClient(BaseClient):
                 attraction.optional = True
             return attractions
 
-        fallback = sample_data_for(destination).attractions
         cache_key = self.make_cache_key("opentripmap", destination)
-        result = self.call("opentripmap", fetch, None, cache_key, settings.CACHE_TTL_ATTRACTIONS)
-        return result or fallback
+        return self.call("opentripmap", fetch, None, cache_key, settings.CACHE_TTL_ATTRACTIONS)

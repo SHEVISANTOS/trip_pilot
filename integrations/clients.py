@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from integrations.activities import OpenTripMapClient
 from integrations.esim import EsimGoClient
 from integrations.exchange import ExchangeRateClient
+from integrations.gemini import GeminiEstimateClient
 from integrations.hotels import LiteApiHotelClient
 from integrations.maps import MapsClient
 from integrations.serpapi import (
@@ -36,6 +37,10 @@ class IntegrationClients:
     # nothing for the destination.
     activities: OpenTripMapClient = field(default_factory=OpenTripMapClient)
     activities_serp: SerpApiAttractionsClient = field(default_factory=SerpApiAttractionsClient)
+    # Last resort, tried only when both attractions sources above have
+    # nothing — an AI estimate for the real destination beats the generic,
+    # same-numbers-for-every-city fixture data. See integrations/gemini.py.
+    gemini: GeminiEstimateClient = field(default_factory=GeminiEstimateClient)
     visa: PassportIndexVisaClient = field(default_factory=PassportIndexVisaClient)
     exchange: ExchangeRateClient = field(default_factory=ExchangeRateClient)
     maps: MapsClient = field(default_factory=MapsClient)
