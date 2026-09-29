@@ -40,14 +40,12 @@ document the response shape in enough detail to code against blind):
 """
 from datetime import date
 
-import requests
 from django.conf import settings
 
+from integrations import google_travel
 from integrations.base import BaseClient, NotConfigured
 from integrations.dataclasses import Attraction, FlightOffer, HotelOffer
 from integrations.travelpayouts import resolve_iata
-
-SEARCH_URL = "https://serpapi.com/search.json"
 
 FLIGHT_LABELS = ["Cheapest", "Recommended", "Alternative"]
 
@@ -82,8 +80,8 @@ class SerpApiFlightsClient(BaseClient):
         self, origin: str, destination: str, adults: int, start_date: date | None, end_date: date | None
     ) -> list[FlightOffer] | None:
         def fetch():
-            if not settings.SERPAPI_KEY:
-                raise NotConfigured("SERPAPI_KEY not set")
+            if not google_travel.is_configured():
+                raise NotConfigured("no google_travel provider configured")
             if not (start_date and end_date):
                 raise ValueError("SerpApi flights needs both outbound and return dates")
             origin_code = resolve_iata(origin)
@@ -94,9 +92,8 @@ class SerpApiFlightsClient(BaseClient):
                     f"(got {origin_code!r} -> {destination_code!r})"
                 )
 
-            resp = requests.get(
-                SEARCH_URL,
-                params={
+            payload = google_travel.search(
+                {
                     "engine": "google_flights",
                     "departure_id": origin_code,
                     "arrival_id": destination_code,
@@ -105,12 +102,10 @@ class SerpApiFlightsClient(BaseClient):
                     "type": 1,
                     "adults": max(adults, 1),
                     "currency": "USD",
-                    "api_key": settings.SERPAPI_KEY,
-                },
-                timeout=30,
+                }
             )
-            resp.raise_for_status()
-            payload = resp.json()
+            if "error" in payload:
+                raise ValueError(f"google_travel flight search failed: {payload['error']}")
             if payload.get("search_metadata", {}).get("status") != "Success":
                 raise ValueError(f"SerpApi flight search did not succeed: {payload.get('search_metadata')}")
 
@@ -152,8 +147,8 @@ class SerpApiFlightsClient(BaseClient):
         """
 
         def fetch():
-            if not settings.SERPAPI_KEY:
-                raise NotConfigured("SERPAPI_KEY not set")
+            if not google_travel.is_configured():
+                raise NotConfigured("no google_travel provider configured")
             if not departure_date:
                 raise ValueError("SerpApi one-way flights needs a departure date")
             origin_code = resolve_iata(origin)
@@ -164,9 +159,8 @@ class SerpApiFlightsClient(BaseClient):
                     f"(got {origin_code!r} -> {destination_code!r})"
                 )
 
-            resp = requests.get(
-                SEARCH_URL,
-                params={
+            payload = google_travel.search(
+                {
                     "engine": "google_flights",
                     "departure_id": origin_code,
                     "arrival_id": destination_code,
@@ -174,12 +168,10 @@ class SerpApiFlightsClient(BaseClient):
                     "type": 2,
                     "adults": max(adults, 1),
                     "currency": "USD",
-                    "api_key": settings.SERPAPI_KEY,
-                },
-                timeout=30,
+                }
             )
-            resp.raise_for_status()
-            payload = resp.json()
+            if "error" in payload:
+                raise ValueError(f"google_travel one-way flight search failed: {payload['error']}")
             if payload.get("search_metadata", {}).get("status") != "Success":
                 raise ValueError(f"SerpApi one-way flight search did not succeed: {payload.get('search_metadata')}")
 
@@ -225,27 +217,24 @@ class SerpApiHotelsClient(BaseClient):
         # live via SerpApi's docs) has no rooms/occupancy-split parameter, so
         # it can't actually narrow results by room count.
         def fetch():
-            if not settings.SERPAPI_KEY:
-                raise NotConfigured("SERPAPI_KEY not set")
+            if not google_travel.is_configured():
+                raise NotConfigured("no google_travel provider configured")
             if not (checkin and checkout):
                 raise ValueError("SerpApi hotels needs both checkin and checkout dates")
             city = destination.split(",")[0].strip() or destination
 
-            resp = requests.get(
-                SEARCH_URL,
-                params={
+            payload = google_travel.search(
+                {
                     "engine": "google_hotels",
                     "q": city,
                     "check_in_date": checkin.isoformat(),
                     "check_out_date": checkout.isoformat(),
                     "adults": max(adults, 1),
                     "currency": "USD",
-                    "api_key": settings.SERPAPI_KEY,
-                },
-                timeout=30,
+                }
             )
-            resp.raise_for_status()
-            payload = resp.json()
+            if "error" in payload:
+                raise ValueError(f"google_travel hotel search failed: {payload['error']}")
             if payload.get("search_metadata", {}).get("status") != "Success":
                 raise ValueError(f"SerpApi hotel search did not succeed: {payload.get('search_metadata')}")
 
@@ -290,15 +279,11 @@ class SerpApiSearchClient(BaseClient):
 
     def resolve_link(self, query: str) -> str | None:
         def fetch():
-            if not settings.SERPAPI_KEY:
-                raise NotConfigured("SERPAPI_KEY not set")
-            resp = requests.get(
-                SEARCH_URL,
-                params={"engine": "google", "q": query, "api_key": settings.SERPAPI_KEY},
-                timeout=20,
-            )
-            resp.raise_for_status()
-            payload = resp.json()
+            if not google_travel.is_configured():
+                raise NotConfigured("no google_travel provider configured")
+            payload = google_travel.search({"engine": "google", "q": query})
+            if "error" in payload:
+                raise ValueError(f"google_travel search failed: {payload['error']}")
             if payload.get("search_metadata", {}).get("status") != "Success":
                 raise ValueError(f"SerpApi search did not succeed: {payload.get('search_metadata')}")
             results = payload.get("organic_results") or []
@@ -331,8 +316,8 @@ class SerpApiAttractionsClient(BaseClient):
 
     def search_attractions(self, destination: str) -> list[Attraction] | None:
         def fetch():
-            if not settings.SERPAPI_KEY:
-                raise NotConfigured("SERPAPI_KEY not set")
+            if not google_travel.is_configured():
+                raise NotConfigured("no google_travel provider configured")
             # Whether Google surfaces the "Top sights" carousel at all is its
             # own call, not something query phrasing fully controls — tested
             # live, "<city>" alone and "<city>, <country>" each trigger it
@@ -341,13 +326,9 @@ class SerpApiAttractionsClient(BaseClient):
             # "Cairo" doesn't). Neither phrasing dominates, so this uses the
             # full destination as given — when it comes back empty,
             # OpenTripMap (a real, always-available source) is the fallback.
-            resp = requests.get(
-                SEARCH_URL,
-                params={"engine": "google", "q": f"things to do in {destination}", "api_key": settings.SERPAPI_KEY},
-                timeout=20,
-            )
-            resp.raise_for_status()
-            payload = resp.json()
+            payload = google_travel.search({"engine": "google", "q": f"things to do in {destination}"})
+            if "error" in payload:
+                raise ValueError(f"google_travel attractions search failed: {payload['error']}")
             if payload.get("search_metadata", {}).get("status") != "Success":
                 raise ValueError(f"SerpApi attractions search did not succeed: {payload.get('search_metadata')}")
 

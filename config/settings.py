@@ -254,6 +254,16 @@ STAYAPI_KEY = env("STAYAPI_KEY", default="")
 # (CACHE_TTL_SERPAPI below) and only reached when the primary source above it
 # in the cascade has nothing.
 SERPAPI_KEY = env("SERPAPI_KEY", default="")
+# SearchApi.io — a second, independent key for the same three engines above,
+# used by integrations/google_travel.py to fail over when SerpApi is out of
+# quota or unreachable. Unset by default (SerpApi-only, unchanged behavior).
+SEARCHAPI_KEY = env("SEARCHAPI_KEY", default="")
+# Order to try providers in (comma-separated); a provider with no key
+# configured above is skipped automatically. See integrations/google_travel.py.
+GOOGLE_TRAVEL_PROVIDERS = env("GOOGLE_TRAVEL_PROVIDERS", default="serpapi,searchapi")
+# "failover" (default) always tries providers in the order above; "balance"
+# shuffles the non-cooled-down candidates first, spreading load across both.
+GOOGLE_TRAVEL_STRATEGY = env("GOOGLE_TRAVEL_STRATEGY", default="failover")
 
 # Visa guidance: no key needed — backed by the open, MIT-licensed Passport
 # Index dataset vendored at integrations/data/passport_index_visa.csv

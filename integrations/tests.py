@@ -5,6 +5,7 @@ import responses
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
+from integrations import google_travel
 from integrations.activities import OpenTripMapClient, estimate_entry_cost
 from integrations.base import BaseClient
 from integrations.esim import EsimGoClient
@@ -916,8 +917,12 @@ def serp_flight_search_response(prices=(877,), google_flights_url="https://www.g
     }
 
 
-@override_settings(SERPAPI_KEY="", CACHES=LOCMEM_CACHE)
+@override_settings(SERPAPI_KEY="", SEARCHAPI_KEY="", CACHES=LOCMEM_CACHE)
 class SerpApiUnconfiguredTests(CacheIsolatedTestCase):
+    """Both keys blanked, not just SERPAPI_KEY — since integrations/serpapi.py
+    now routes through google_travel.search(), which tries SearchApi.io too,
+    "unconfigured" only means no live call happens when neither key is set.
+    """
     def test_flights_unconfigured_returns_none_and_logs(self):
         result = SerpApiFlightsClient().search_flights(
             "Dar es Salaam", "Istanbul, Türkiye", 2, date(2027, 5, 10), date(2027, 5, 18)
@@ -943,7 +948,7 @@ class SerpApiUnconfiguredTests(CacheIsolatedTestCase):
         self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_attractions", success=False).count(), 1)
 
 
-@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+@override_settings(SERPAPI_KEY="test-serp-key", SEARCHAPI_KEY="", CACHES=LOCMEM_CACHE)
 class SerpApiFlightsClientTests(CacheIsolatedTestCase):
     @responses.activate
     def test_maps_response_to_flight_offers_with_shared_booking_url(self):
@@ -1014,7 +1019,7 @@ class SerpApiFlightsClientTests(CacheIsolatedTestCase):
         self.assertIsNone(offers)
 
 
-@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+@override_settings(SERPAPI_KEY="test-serp-key", SEARCHAPI_KEY="", CACHES=LOCMEM_CACHE)
 class SerpApiOneWayFlightsClientTests(CacheIsolatedTestCase):
     """search_one_way_flights() — used for each hop of a multi-city chain,
     see pricing.budget._build_flight_chain."""
@@ -1078,7 +1083,7 @@ def serp_hotel_search_response(properties, google_hotels_url="https://www.google
     return {"search_metadata": {"status": "Success", "google_hotels_url": google_hotels_url}, "properties": properties}
 
 
-@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+@override_settings(SERPAPI_KEY="test-serp-key", SEARCHAPI_KEY="", CACHES=LOCMEM_CACHE)
 class SerpApiHotelsClientTests(CacheIsolatedTestCase):
     @responses.activate
     def test_maps_response_to_priced_offers_cheapest_first_with_shared_url(self):
@@ -1153,7 +1158,7 @@ class SerpApiHotelsClientTests(CacheIsolatedTestCase):
         self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_hotels", success=False).count(), 1)
 
 
-@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+@override_settings(SERPAPI_KEY="test-serp-key", SEARCHAPI_KEY="", CACHES=LOCMEM_CACHE)
 class SerpApiSearchClientTests(CacheIsolatedTestCase):
     @responses.activate
     def test_returns_top_organic_result_link(self):
@@ -1204,7 +1209,7 @@ def serp_attractions_response(sights):
     return {"search_metadata": {"status": "Success"}, "top_sights": {"sights": sights}}
 
 
-@override_settings(SERPAPI_KEY="test-serp-key", CACHES=LOCMEM_CACHE)
+@override_settings(SERPAPI_KEY="test-serp-key", SEARCHAPI_KEY="", CACHES=LOCMEM_CACHE)
 class SerpApiAttractionsClientTests(CacheIsolatedTestCase):
     @responses.activate
     def test_maps_top_sights_to_attractions(self):
@@ -1275,3 +1280,129 @@ class SerpApiAttractionsClientTests(CacheIsolatedTestCase):
         result = SerpApiAttractionsClient().search_attractions("Cairo, Egypt")
         self.assertIsNone(result)
         self.assertEqual(IntegrationCallLog.objects.filter(provider="serpapi_attractions", success=False).count(), 1)
+
+
+SEARCHAPI_URL = "https://www.searchapi.io/api/v1/search"
+
+
+@override_settings(
+    SERPAPI_KEY="test-serp-key",
+    SEARCHAPI_KEY="test-searchapi-key",
+    GOOGLE_TRAVEL_PROVIDERS="serpapi,searchapi",
+    # Pinned explicitly rather than left to inherit — GOOGLE_TRAVEL_STRATEGY
+    # is an ordinary deployment setting (real .env may set it to "balance"),
+    # and these tests assert a specific serpapi-then-searchapi call order.
+    GOOGLE_TRAVEL_STRATEGY="failover",
+    CACHES=LOCMEM_CACHE,
+)
+class GoogleTravelSearchTests(CacheIsolatedTestCase):
+    """integrations/google_travel.py — the SerpApi/SearchApi.io failover
+    layer every integrations/serpapi.py client now calls through instead of
+    hitting SerpApi directly.
+    """
+
+    @responses.activate
+    def test_serpapi_success_is_cached_second_identical_call_makes_no_http_request(self):
+        responses.add(responses.GET, SERPAPI_URL, json=serp_flight_search_response(prices=[877]), status=200)
+        params = {"engine": "google_flights", "departure_id": "DAR", "arrival_id": "IST", "type": 1}
+
+        first = google_travel.search(params)
+        self.assertNotIn("error", first)
+        self.assertEqual(len(responses.calls), 1)
+
+        second = google_travel.search(params)
+        self.assertEqual(second, first)
+        self.assertEqual(len(responses.calls), 1)  # no new HTTP request
+
+    @responses.activate
+    def test_serpapi_out_of_searches_falls_over_to_searchapi_and_is_skipped_next_call(self):
+        responses.add(
+            responses.GET,
+            SERPAPI_URL,
+            json={"error": "Your account has run out of searches for this month."},
+            status=429,
+        )
+        responses.add(responses.GET, SEARCHAPI_URL, json=serp_flight_search_response(prices=[700]), status=200)
+        params = {"engine": "google_flights", "departure_id": "DAR", "arrival_id": "IST", "type": 1}
+
+        result = google_travel.search(params)
+        self.assertNotIn("error", result)
+        self.assertEqual(len(responses.calls), 2)
+        self.assertIn("serpapi.com", responses.calls[0].request.url)
+        self.assertIn("searchapi.io", responses.calls[1].request.url)
+
+        # Cached now, but prove the cooldown itself is what's skipping SerpApi
+        # on a second call, not just the cache: use a different params dict
+        # (a different cache key) so this call can't be served from cache.
+        responses.add(responses.GET, SEARCHAPI_URL, json=serp_flight_search_response(prices=[650]), status=200)
+        other_params = {**params, "arrival_id": "NBO"}
+        google_travel.search(other_params)
+        self.assertEqual(len(responses.calls), 3)  # not 4 — SerpApi wasn't retried
+        self.assertIn("searchapi.io", responses.calls[2].request.url)
+
+    @responses.activate
+    def test_both_providers_failing_returns_error_dict(self):
+        responses.add(responses.GET, SERPAPI_URL, status=500)
+        responses.add(responses.GET, SEARCHAPI_URL, status=500)
+        result = google_travel.search({"engine": "google", "q": "things to do in Nowhere"})
+        self.assertIn("error", result)
+        self.assertIsInstance(result["error"], str)
+
+    @responses.activate
+    def test_failed_search_is_not_cached_a_later_call_retries(self):
+        responses.add(responses.GET, SERPAPI_URL, status=500)
+        responses.add(responses.GET, SEARCHAPI_URL, status=500)
+        params = {"engine": "google", "q": "things to do in Nowhere"}
+        google_travel.search(params)
+        self.assertEqual(len(responses.calls), 2)
+        google_travel.search(params)
+        self.assertEqual(len(responses.calls), 4)  # retried both, nothing cached from a failure
+
+    def test_google_flights_params_are_translated_for_searchapi(self):
+        translated = google_travel._translate_params_for_searchapi(
+            {
+                "engine": "google_flights",
+                "type": 1,
+                "travel_class": 2,
+                "stops": 1,
+                "multi_city_json": '[{"departure_id": "DAR", "arrival_id": "IST", "date": "2027-05-10"}]',
+            }
+        )
+        self.assertEqual(translated["flight_type"], "round_trip")
+        self.assertNotIn("type", translated)
+        self.assertEqual(translated["travel_class"], "premium_economy")
+        self.assertEqual(translated["stops"], "nonstop")
+        self.assertEqual(
+            translated["multi_city_json"],
+            '[{"departure_id": "DAR", "arrival_id": "IST", "outbound_date": "2027-05-10"}]',
+        )
+
+    def test_non_flight_params_pass_through_unchanged_for_searchapi(self):
+        params = {"engine": "google_hotels", "q": "Istanbul", "check_in_date": "2027-05-10"}
+        self.assertEqual(google_travel._translate_params_for_searchapi(params), params)
+
+    @responses.activate
+    def test_searchapi_hotel_response_is_normalized_to_serpapi_field_names(self):
+        responses.add(responses.GET, SERPAPI_URL, status=429, json={"error": "run out of searches"})
+        responses.add(
+            responses.GET,
+            SEARCHAPI_URL,
+            json={
+                "properties": [
+                    {
+                        "type": "hotel",
+                        "name": "Test Hotel",
+                        "price_per_night": {"price": "$100", "extracted_price": 100},
+                        "total_price": {"price": "$800", "extracted_price": 800},
+                        "rating": 4.2,
+                    }
+                ]
+            },
+            status=200,
+        )
+        payload = google_travel.search({"engine": "google_hotels", "q": "Istanbul"})
+        prop = payload["properties"][0]
+        self.assertEqual(prop["rate_per_night"]["extracted_lowest"], 100)
+        self.assertEqual(prop["total_rate"]["extracted_lowest"], 800)
+        self.assertEqual(prop["overall_rating"], 4.2)
+        self.assertEqual(payload["search_metadata"]["status"], "Success")
