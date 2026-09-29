@@ -65,7 +65,7 @@ def trip_form_data(**overrides):
         "legs-0-departure_date": end.isoformat(),
         "legs-0-hotel_preference": "3–4 Star Hotel",
         "legs-0-rooms": 1,
-        "legs-0-bed_configuration": "double",
+        "legs-0-bed_configuration": "queen",
     }
     for field, value in leg_overrides.items():
         data[f"legs-0-{field}"] = value
@@ -89,7 +89,7 @@ def leg_formset_data(**leg_overrides):
         "legs-0-departure_date": end.isoformat(),
         "legs-0-hotel_preference": "3–4 Star Hotel",
         "legs-0-rooms": 1,
-        "legs-0-bed_configuration": "double",
+        "legs-0-bed_configuration": "queen",
     }
     data.update(leg_overrides)
     return data
@@ -178,7 +178,7 @@ class LegFormSetTests(TestCase):
                 "legs-1-departure_date": (start + timedelta(days=7)).isoformat(),
                 "legs-1-hotel_preference": "3–4 Star Hotel",
                 "legs-1-rooms": 1,
-                "legs-1-bed_configuration": "double",
+                "legs-1-bed_configuration": "queen",
             }
         )
         formset = LegFormSet(data=data, prefix="legs")
@@ -197,7 +197,7 @@ class LegFormSetTests(TestCase):
                 "legs-1-departure_date": (start + timedelta(days=8)).isoformat(),
                 "legs-1-hotel_preference": "3–4 Star Hotel",
                 "legs-1-rooms": 1,
-                "legs-1-bed_configuration": "double",
+                "legs-1-bed_configuration": "queen",
             }
         )
         formset = LegFormSet(data=data, prefix="legs")

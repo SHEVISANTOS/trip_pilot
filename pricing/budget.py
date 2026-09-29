@@ -319,7 +319,7 @@ class LegInput:
     departure_date: date | None
     hotel_preference: str = "3–4 Star Hotel"
     rooms: int = 1
-    bed_configuration: str = "double"
+    bed_configuration: str = "queen"
 
     @property
     def nights(self) -> int:

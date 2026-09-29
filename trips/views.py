@@ -118,7 +118,7 @@ def results(request, pk):
                         # created before this feature have BudgetBreakdown
                         # rows whose legs JSON predates these two keys.
                         "rooms": leg.get("rooms", 1),
-                        "bed_configuration": leg.get("bed_configuration", "double"),
+                        "bed_configuration": leg.get("bed_configuration", "queen"),
                     }
                 )
             attractions_display.extend(
@@ -135,7 +135,7 @@ def results(request, pk):
                     "display_total": total,
                     "per_night": round(total / nights) if nights else 0,
                     "rooms": leg0.get("rooms", 1),
-                    "bed_configuration": leg0.get("bed_configuration", "double"),
+                    "bed_configuration": leg0.get("bed_configuration", "queen"),
                 }
             )
         attractions_display = [

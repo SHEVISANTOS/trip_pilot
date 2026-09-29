@@ -25,16 +25,18 @@ ACCOMMODATION_CHOICES = [
     ("Luxury Hotel", "★★★★★ Luxury Hotel"),
 ]
 
-# A real search parameter for LiteAPI (occupancies, one entry per room) and
-# StayAPI (rooms=) — verified live: splitting the same party across more
-# rooms genuinely changes the rates/total both return, not just cosmetic.
-# Google Hotels (SerpApi) has no equivalent parameter (checked its docs),
-# so this only narrows the *first two* hotel tiers, not the third.
+# Standard hotel mattress sizes. Unlike TripLeg.rooms (a real LiteAPI/
+# StayAPI search parameter — see integrations/hotels.py, integrations/
+# stayapi.py), no provider exposes bed type as a filter, so this is a
+# stored traveller preference only: shown on the results page and hinted
+# to booking links, never sent as a search parameter.
 BED_CONFIGURATION_CHOICES = [
-    ("double", "1 Double/Queen Bed (Couple)"),
-    ("king", "1 King Bed (Couple)"),
-    ("twin", "2 Twin Beds"),
-    ("family", "Multiple Beds (Family)"),
+    ("single", "Single / Twin"),
+    ("twin_xl", "Twin XL"),
+    ("full", "Double / Full"),
+    ("queen", "Queen"),
+    ("king", "King"),
+    ("cal_king", "California King"),
 ]
 
 CURRENCY_CHOICES = [
@@ -107,7 +109,7 @@ class TripLeg(models.Model):
     departure_date = models.DateField()
     hotel_preference = models.CharField(max_length=30, choices=ACCOMMODATION_CHOICES, default="3–4 Star Hotel")
     rooms = models.PositiveSmallIntegerField(default=1)
-    bed_configuration = models.CharField(max_length=10, choices=BED_CONFIGURATION_CHOICES, default="double")
+    bed_configuration = models.CharField(max_length=10, choices=BED_CONFIGURATION_CHOICES, default="queen")
 
     class Meta:
         ordering = ["order"]
