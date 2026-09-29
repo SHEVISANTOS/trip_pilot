@@ -266,3 +266,32 @@ class GoogleSignInTests(TestCase):
         for url_name in ("accounts:login", "accounts:signup"):
             response = self.client.get(reverse(url_name))
             self.assertContains(response, reverse("google_login"))
+
+
+class LogoutTests(TestCase):
+    """Django's LogoutView only accepts POST (GET-based logout was removed
+    as a CSRF-logout-attack vector) — a plain <a href> link to it 405s on
+    every click. Caught live: clicking "Log out" in production did exactly
+    that.
+    """
+
+    def test_get_is_not_allowed(self):
+        user = User.objects.create_user(username="logouttest", password="pw12345!")
+        self.client.force_login(user)
+        response = self.client.get(reverse("accounts:logout"))
+        self.assertEqual(response.status_code, 405)
+
+    def test_post_logs_the_user_out(self):
+        user = User.objects.create_user(username="logouttest2", password="pw12345!")
+        self.client.force_login(user)
+        response = self.client.post(reverse("accounts:logout"))
+        self.assertEqual(response.status_code, 302)
+        response = self.client.get(reverse("accounts:dashboard"))
+        self.assertEqual(response.status_code, 302)  # login_required redirect -> logged out
+
+    def test_topbar_renders_logout_as_a_post_form_not_a_bare_link(self):
+        user = User.objects.create_user(username="logouttest3", password="pw12345!")
+        self.client.force_login(user)
+        response = self.client.get(reverse("trips:planner"))
+        self.assertContains(response, f'action="{reverse("accounts:logout")}"')
+        self.assertNotContains(response, f'href="{reverse("accounts:logout")}"')
