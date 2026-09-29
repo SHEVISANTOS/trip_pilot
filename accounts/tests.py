@@ -211,6 +211,25 @@ class PasswordResetFlowTests(TestCase):
         self.assertIn("Reset your TripPilot AI password", mail.outbox[0].subject)
         self.assertIn("resetme@example.com", mail.outbox[0].to)
 
+    def test_reset_link_uses_the_actual_request_host_not_the_sites_framework_default(self):
+        # Regression: django.contrib.sites' default Site row is
+        # domain="example.com" (its factory default, never updated here —
+        # added only for allauth's benefit) — PasswordResetView normally
+        # reads *that* for the email's domain unless told otherwise, which
+        # leaked a dead https://example.com/... link into a real email.
+        # accounts.views.RequestDomainPasswordResetView passes the actual
+        # request host instead; this confirms the fix, not just that some
+        # domain is present.
+        # Deliberately not an @example.com address — this test is about the
+        # *link's* domain, and an @example.com recipient would make an
+        # `assertNotIn("example.com", body)` unreliable for the wrong reason.
+        User.objects.create_user(username="resetme3", email="resetme3@test-domain.test", password="OldPass!123")
+        response = self.client.post(reverse("accounts:password_reset"), data={"email": "resetme3@test-domain.test"})
+        self.assertRedirects(response, reverse("accounts:password_reset_done"))
+        body = mail.outbox[0].body
+        self.assertNotIn("example.com", body)
+        self.assertIn(f"//{response.wsgi_request.get_host()}/accounts/reset/", body)
+
     def test_unknown_email_sends_nothing_but_still_shows_the_done_page(self):
         # Must not leak whether an email is registered.
         response = self.client.post(reverse("accounts:password_reset"), data={"email": "nobody@example.com"})
