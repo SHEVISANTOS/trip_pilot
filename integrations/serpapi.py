@@ -218,7 +218,12 @@ class SerpApiHotelsClient(BaseClient):
         nights: int,
         nationality: str = "",
         limit: int = 3,
+        rooms: int = 1,
     ) -> list[HotelOffer] | None:
+        # rooms is accepted only for call-signature parity with the other two
+        # hotel clients in pricing.budget's cascade — Google Hotels (checked
+        # live via SerpApi's docs) has no rooms/occupancy-split parameter, so
+        # it can't actually narrow results by room count.
         def fetch():
             if not settings.SERPAPI_KEY:
                 raise NotConfigured("SERPAPI_KEY not set")

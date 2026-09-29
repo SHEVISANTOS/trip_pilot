@@ -50,6 +50,7 @@ class StayApiHotelClient(BaseClient):
         nights: int,
         nationality: str = "",
         limit: int = 3,
+        rooms: int = 1,
     ) -> list[HotelOffer] | None:
         def fetch():
             if not settings.STAYAPI_KEY:
@@ -76,7 +77,7 @@ class StayApiHotelClient(BaseClient):
                     "checkin": checkin.isoformat(),
                     "checkout": checkout.isoformat(),
                     "adults": max(adults, 1),
-                    "rooms": 1,
+                    "rooms": max(rooms, 1),
                     "currency": "USD",
                 },
                 timeout=30,
@@ -117,5 +118,7 @@ class StayApiHotelClient(BaseClient):
             offers.sort(key=lambda o: o.night)
             return offers[:limit] or None
 
-        cache_key = self.make_cache_key("stayapi", destination, checkin, checkout, adults, nights, limit)
+        cache_key = self.make_cache_key(
+            "stayapi", destination, checkin, checkout, adults, nights, limit, rooms
+        )
         return self.call("hotels_stayapi", fetch, None, cache_key, settings.CACHE_TTL_FLIGHTS_HOTELS)

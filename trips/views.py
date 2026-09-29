@@ -54,6 +54,8 @@ def planner(request):
                         arrival_date=leg["arrival_date"],
                         departure_date=leg["departure_date"],
                         hotel_preference=leg["hotel_preference"],
+                        rooms=leg["rooms"],
+                        bed_configuration=leg["bed_configuration"],
                     )
                     for i, leg in enumerate(legs_data)
                 ]
@@ -112,16 +114,30 @@ def results(request, pk):
                         "display_total": total,
                         "per_night": round(total / leg_nights),
                         "leg_city": leg["city"],
+                        # .get() with a default, not leg["rooms"] — trips
+                        # created before this feature have BudgetBreakdown
+                        # rows whose legs JSON predates these two keys.
+                        "rooms": leg.get("rooms", 1),
+                        "bed_configuration": leg.get("bed_configuration", "double"),
                     }
                 )
             attractions_display.extend(
                 {**a, "display_cost": round(a["cost"] * scale), "leg_city": leg["city"]} for a in leg["attractions"]
             )
     else:
+        leg0 = breakdown.legs[0] if breakdown.legs else {}
         hotels_display = []
         for i, h in enumerate(breakdown.hotels):
             total = breakdown.hotel_cost if i == 0 else round(h["total"] * (nights / 8) * scale)
-            hotels_display.append({**h, "display_total": total, "per_night": round(total / nights) if nights else 0})
+            hotels_display.append(
+                {
+                    **h,
+                    "display_total": total,
+                    "per_night": round(total / nights) if nights else 0,
+                    "rooms": leg0.get("rooms", 1),
+                    "bed_configuration": leg0.get("bed_configuration", "double"),
+                }
+            )
         attractions_display = [
             {**a, "display_cost": round(a["cost"] * scale)} for a in breakdown.attractions
         ]

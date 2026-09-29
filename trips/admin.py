@@ -22,7 +22,7 @@ class OverBudgetFilter(admin.SimpleListFilter):
 class TripLegInline(TabularInline):
     model = TripLeg
     extra = 0
-    fields = ("order", "city", "arrival_date", "departure_date", "hotel_preference")
+    fields = ("order", "city", "arrival_date", "departure_date", "hotel_preference", "rooms", "bed_configuration")
 
 
 @admin.register(TripRequest)

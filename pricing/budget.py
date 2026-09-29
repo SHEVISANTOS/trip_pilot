@@ -147,17 +147,27 @@ def _search_url(query: str) -> str:
     return f"https://www.google.com/search?q={quote_plus(query)}"
 
 
-def _booking_search_url(city: str, start_date: date | None, end_date: date | None) -> str:
+def _booking_search_url(
+    city: str, start_date: date | None, end_date: date | None, adults: int = 0, rooms: int = 1
+) -> str:
     """Real Booking.com destination search, buildable with zero API calls
     (its `ss=` free-text field needs no resolved destination ID) — the
     fallback for any hotel without its own booking_url (LiteAPI's live
     rates and the regional-estimate tiers both have no native one).
+
+    `no_rooms=`/`group_adults=` are verified-live additive hints (checked
+    they don't break the search URL, HTTP 301 either way) — harmless to omit
+    when unknown, so both default off.
     """
     params = f"ss={quote_plus(city)}"
     if start_date:
         params += f"&checkin={start_date.isoformat()}"
     if end_date:
         params += f"&checkout={end_date.isoformat()}"
+    if rooms > 1:
+        params += f"&no_rooms={rooms}"
+    if adults:
+        params += f"&group_adults={adults}"
     return f"https://www.booking.com/searchresults.html?{params}"
 
 
@@ -169,6 +179,8 @@ def fill_missing_booking_urls(
     start_date: date | None,
     end_date: date | None,
     attraction_links_client=None,
+    adults: int = 0,
+    rooms: int = 1,
 ) -> tuple[list[FlightOffer], list[HotelOffer], list[Attraction]]:
     """"View / Book" must never dead-end on a fake modal — every item gets a
     real destination on the web, either the provider's own link or a
@@ -184,7 +196,10 @@ def fill_missing_booking_urls(
     link, but it's not worth spending on an attraction that already has one.
     """
     flights = [f if f.booking_url else replace(f, booking_url=_search_url(f"{f.airline} {f.route} flights")) for f in flights]
-    hotels = [h if h.booking_url else replace(h, booking_url=_booking_search_url(city, start_date, end_date)) for h in hotels]
+    hotels = [
+        h if h.booking_url else replace(h, booking_url=_booking_search_url(city, start_date, end_date, adults, rooms))
+        for h in hotels
+    ]
     filled_attractions = []
     for a in attractions:
         if a.booking_url:
@@ -303,6 +318,8 @@ class LegInput:
     arrival_date: date | None
     departure_date: date | None
     hotel_preference: str = "3–4 Star Hotel"
+    rooms: int = 1
+    bed_configuration: str = "double"
 
     @property
     def nights(self) -> int:
@@ -353,6 +370,8 @@ class LegBudget:
     nights: int
     arrival_date: date | None
     departure_date: date | None
+    rooms: int
+    bed_configuration: str
     visa: VisaInfo
     hotels: list[HotelOffer]
     attractions: list[Attraction]
@@ -414,9 +433,9 @@ def _build_leg(leg: LegInput, inputs: TripInputs, people: int, mult: float, exch
     visa = clients.visa.get_visa_info(inputs.nationality, leg.city)
     hotel_args = (leg.city, leg.arrival_date, leg.departure_date, inputs.adults, nights, inputs.nationality)
     hotels = (
-        clients.hotels_serp.search_hotels(*hotel_args)
-        or clients.hotels.search_hotels(*hotel_args)
-        or clients.hotels_backup.search_hotels(*hotel_args)
+        clients.hotels_serp.search_hotels(*hotel_args, rooms=leg.rooms)
+        or clients.hotels.search_hotels(*hotel_args, rooms=leg.rooms)
+        or clients.hotels_backup.search_hotels(*hotel_args, rooms=leg.rooms)
         or estimate_hotels(leg.city, nights)
     )
     attractions = clients.activities_serp.search_attractions(leg.city) or clients.activities.search_attractions(
@@ -437,7 +456,15 @@ def _build_leg(leg: LegInput, inputs: TripInputs, people: int, mult: float, exch
         esim_bundle = replace(esim_bundle, price=round(esim_bundle.price * exchange_rate, 2))
 
     _, hotels, attractions = fill_missing_booking_urls(
-        [], hotels, attractions, city, leg.arrival_date, leg.departure_date, clients.attraction_links
+        [],
+        hotels,
+        attractions,
+        city,
+        leg.arrival_date,
+        leg.departure_date,
+        clients.attraction_links,
+        adults=inputs.adults,
+        rooms=leg.rooms,
     )
 
     hotel_cost = round(hotels[0].night * nights * mult)
@@ -460,6 +487,8 @@ def _build_leg(leg: LegInput, inputs: TripInputs, people: int, mult: float, exch
         nights=nights,
         arrival_date=leg.arrival_date,
         departure_date=leg.departure_date,
+        rooms=leg.rooms,
+        bed_configuration=leg.bed_configuration,
         visa=visa,
         hotels=hotels,
         attractions=attractions,

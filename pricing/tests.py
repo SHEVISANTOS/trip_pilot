@@ -79,21 +79,21 @@ class StubHotels:
     then estimate_hotels().
     """
 
-    def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3):
+    def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3, rooms=1):
         return None
 
 
 class StubHotelsSerp:
     """Mirrors SerpApiHotelsClient (tier 2)."""
 
-    def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3):
+    def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3, rooms=1):
         return None
 
 
 class StubHotelsBackup:
     """Mirrors StayApiHotelClient (tier 3)."""
 
-    def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3):
+    def search_hotels(self, destination, checkin, checkout, adults, nights, nationality="", limit=3, rooms=1):
         return None
 
 

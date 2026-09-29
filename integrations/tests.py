@@ -549,6 +549,37 @@ class LiteApiHotelClientTests(CacheIsolatedTestCase):
         self.assertEqual(IntegrationCallLog.objects.filter(provider="hotels", success=True).count(), 1)
 
     @responses.activate
+    def test_multi_room_request_splits_occupancies_and_sums_all_room_rates(self):
+        """Regression: the original implementation only read rates[0], which
+        silently undercounts once a hotel returns one rates[] entry per
+        requested room (verified live against the real sandbox API).
+        """
+        payload = {
+            "hotels": [{"id": "h1", "name": "Sura Hagia Sophia Hotel", "stars": 5,
+                        "city_name": "Istanbul", "address": "Sultanahmet"}],
+            "data": [
+                {
+                    "hotelId": "h1",
+                    "roomTypes": [
+                        {
+                            "rates": [
+                                {"retailRate": {"total": [{"amount": 300.0, "currency": "USD"}]}},
+                                {"retailRate": {"total": [{"amount": 280.0, "currency": "USD"}]}},
+                            ]
+                        }
+                    ],
+                }
+            ],
+        }
+        responses.add(responses.POST, LITEAPI_URL, json=payload, status=200)
+        offers = LiteApiHotelClient().search_hotels(
+            "Istanbul, Türkiye", date(2026, 12, 10), date(2026, 12, 18), 4, 8, rooms=2
+        )
+        self.assertEqual(offers[0].total, 580.0)
+        sent_occupancies = responses.calls[0].request.body
+        self.assertIn(b'"occupancies": [{"adults": 2}, {"adults": 2}]', sent_occupancies)
+
+    @responses.activate
     def test_missing_dates_returns_none_without_calling_api(self):
         offers = LiteApiHotelClient().search_hotels("Istanbul, Türkiye", None, None, 2, 8)
         self.assertIsNone(offers)
@@ -641,6 +672,20 @@ class StayApiHotelClientTests(CacheIsolatedTestCase):
         self.assertEqual(offers[0].rating, "8.8/10")  # no star_rating -> falls back to review score
         self.assertEqual(offers[1].rating, "5★")
         self.assertEqual(IntegrationCallLog.objects.filter(provider="hotels_stayapi", success=True).count(), 1)
+
+    @responses.activate
+    def test_rooms_argument_is_forwarded_to_the_search_request(self):
+        responses.add(responses.GET, STAYAPI_LOOKUP_URL, json=stayapi_lookup_payload(), status=200)
+        responses.add(
+            responses.GET,
+            STAYAPI_SEARCH_URL,
+            json={"data": {"hotels": [stayapi_hotel("Hotel A", 863.0)]}},
+            status=200,
+        )
+        StayApiHotelClient().search_hotels(
+            "Istanbul, Türkiye", date(2026, 12, 10), date(2026, 12, 18), 4, 8, rooms=2
+        )
+        self.assertIn("rooms=2", responses.calls[-1].request.url)
 
     @responses.activate
     def test_destination_search_url_is_attached_to_every_hotel(self):

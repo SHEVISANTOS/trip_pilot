@@ -25,6 +25,18 @@ ACCOMMODATION_CHOICES = [
     ("Luxury Hotel", "★★★★★ Luxury Hotel"),
 ]
 
+# A real search parameter for LiteAPI (occupancies, one entry per room) and
+# StayAPI (rooms=) — verified live: splitting the same party across more
+# rooms genuinely changes the rates/total both return, not just cosmetic.
+# Google Hotels (SerpApi) has no equivalent parameter (checked its docs),
+# so this only narrows the *first two* hotel tiers, not the third.
+BED_CONFIGURATION_CHOICES = [
+    ("double", "1 Double/Queen Bed (Couple)"),
+    ("king", "1 King Bed (Couple)"),
+    ("twin", "2 Twin Beds"),
+    ("family", "Multiple Beds (Family)"),
+]
+
 CURRENCY_CHOICES = [
     ("USD", "USD ($)"),
     ("TZS", "TZS"),
@@ -94,6 +106,8 @@ class TripLeg(models.Model):
     arrival_date = models.DateField()
     departure_date = models.DateField()
     hotel_preference = models.CharField(max_length=30, choices=ACCOMMODATION_CHOICES, default="3–4 Star Hotel")
+    rooms = models.PositiveSmallIntegerField(default=1)
+    bed_configuration = models.CharField(max_length=10, choices=BED_CONFIGURATION_CHOICES, default="double")
 
     class Meta:
         ordering = ["order"]

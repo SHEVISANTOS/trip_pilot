@@ -49,7 +49,7 @@
     <ul class="small-list">
       {% for leg in legs %}
       <li>
-        <span><b>{{ forloop.counter }}. {{ leg.city }}</b><br><small>{{ leg.arrival_date }} → {{ leg.departure_date }} • {{ leg.nights }} night{{ leg.nights|pluralize }}</small></span>
+        <span><b>{{ forloop.counter }}. {{ leg.city }}</b><br><small>{{ leg.arrival_date }} → {{ leg.departure_date }} • {{ leg.nights }} night{{ leg.nights|pluralize }}</small><br><small>{{ leg.rooms }} room{{ leg.rooms|pluralize }} • {{ leg.bed_configuration|bed_config_label }}</small></span>
         <b>{{ leg.total|money:trip_request.currency }}</b>
       </li>
       {% endfor %}
@@ -119,6 +119,7 @@
         {% if hotel.leg_city %}<span class="tag">{{ hotel.leg_city }}</span>{% endif %}
         <h4>{{ hotel.name }}</h4>
         <p>{{ hotel.area }} • {{ hotel.rating }}</p>
+        <p>{{ hotel.rooms }} room{{ hotel.rooms|pluralize }} • {{ hotel.bed_configuration|bed_config_label }}</p>
         <p>{{ hotel.desc }}</p>
         <div class="card-price">{{ hotel.display_total|money:trip_request.currency }} <small>total</small></div>
         <p>Approx. {{ hotel.per_night|money:trip_request.currency }}/night • {{ breakdown.nights }} nights</p>

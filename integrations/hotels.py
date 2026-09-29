@@ -25,6 +25,17 @@ def _nightly(total: float, nights: int) -> float:
     return round(total / max(nights, 1), 2)
 
 
+def _split_occupancies(adults: int, rooms: int) -> list[dict]:
+    """Distribute `adults` across `rooms` occupancy entries (divmod, extra
+    guests loaded onto the first rooms) — matches how the accommodation
+    form's "rooms" count should actually partition the party, since LiteAPI
+    has no single "total adults, N rooms" shorthand of its own.
+    """
+    rooms = max(rooms, 1)
+    base, extra = divmod(max(adults, 1), rooms)
+    return [{"adults": max(base + (1 if i < extra else 0), 1)} for i in range(rooms)]
+
+
 class LiteApiHotelClient(BaseClient):
     def search_hotels(
         self,
@@ -35,6 +46,7 @@ class LiteApiHotelClient(BaseClient):
         nights: int,
         nationality: str = "",
         limit: int = 3,
+        rooms: int = 1,
     ) -> list[HotelOffer] | None:
         """Real priced properties for `destination`, cheapest first. Returns
         None when unconfigured, when the destination can't be resolved, or
@@ -61,7 +73,7 @@ class LiteApiHotelClient(BaseClient):
                     "checkout": checkout.isoformat(),
                     "currency": "USD",
                     "guestNationality": resolve_country(nationality) or country,
-                    "occupancies": [{"adults": max(adults, 1)}],
+                    "occupancies": _split_occupancies(adults, rooms),
                     "limit": max(limit * 3, 9),
                 },
                 timeout=45,
@@ -76,7 +88,14 @@ class LiteApiHotelClient(BaseClient):
                 if not meta:
                     continue
                 try:
-                    total = float(row["roomTypes"][0]["rates"][0]["retailRate"]["total"][0]["amount"])
+                    # One `rates[]` entry per requested room (one per
+                    # occupancies entry) — summing all of them is required
+                    # for a multi-room total; rates[0] alone silently
+                    # undercounts as soon as rooms > 1.
+                    total = sum(
+                        float(rate["retailRate"]["total"][0]["amount"])
+                        for rate in row["roomTypes"][0]["rates"]
+                    )
                 except (KeyError, IndexError, TypeError, ValueError):
                     continue
                 stars = meta.get("stars") or 0
@@ -95,6 +114,6 @@ class LiteApiHotelClient(BaseClient):
             return offers[:limit] or None
 
         cache_key = self.make_cache_key(
-            "liteapi", destination, checkin, checkout, adults, nights, limit
+            "liteapi", destination, checkin, checkout, adults, nights, limit, rooms
         )
         return self.call("hotels", fetch, None, cache_key, settings.CACHE_TTL_FLIGHTS_HOTELS)

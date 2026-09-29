@@ -51,6 +51,8 @@
             <label>Arrival date{{ leg_form.arrival_date }}</label>
             <label>Departure date{{ leg_form.departure_date }}</label>
             <label>Accommodation{{ leg_form.hotel_preference }}</label>
+            <label>Rooms{{ leg_form.rooms }}</label>
+            <label>Bed configuration{{ leg_form.bed_configuration }}</label>
             {% if leg_form.non_field_errors %}
               <div class="wide alert warn">{{ leg_form.non_field_errors|join:" " }}</div>
             {% endif %}
@@ -66,6 +68,8 @@
           <label>Arrival date{{ leg_formset.empty_form.arrival_date }}</label>
           <label>Departure date{{ leg_formset.empty_form.departure_date }}</label>
           <label>Accommodation{{ leg_formset.empty_form.hotel_preference }}</label>
+          <label>Rooms{{ leg_formset.empty_form.rooms }}</label>
+          <label>Bed configuration{{ leg_formset.empty_form.bed_configuration }}</label>
         </div>
         <button type="button" class="leg-remove outline" style="margin-top:10px">✕ Remove this destination</button>
       </template>

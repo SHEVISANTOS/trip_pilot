@@ -2,7 +2,7 @@ from datetime import date
 
 from django import forms
 
-from trips.models import ACCOMMODATION_CHOICES, TripRequest
+from trips.models import ACCOMMODATION_CHOICES, BED_CONFIGURATION_CHOICES, TripRequest
 
 
 class TripRequestForm(forms.ModelForm):
@@ -38,6 +38,8 @@ class LegForm(forms.Form):
     arrival_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
     departure_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
     hotel_preference = forms.ChoiceField(choices=ACCOMMODATION_CHOICES)
+    rooms = forms.IntegerField(min_value=1, initial=1, widget=forms.NumberInput(attrs={"min": 1, "placeholder": "1"}))
+    bed_configuration = forms.ChoiceField(choices=BED_CONFIGURATION_CHOICES)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

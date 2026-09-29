@@ -38,6 +38,8 @@ def inputs_from_trip_request(trip_request: TripRequest) -> TripInputs:
             arrival_date=leg.arrival_date,
             departure_date=leg.departure_date,
             hotel_preference=leg.hotel_preference,
+            rooms=leg.rooms,
+            bed_configuration=leg.bed_configuration,
         )
         for leg in trip_request.legs.all()
     ]
@@ -83,6 +85,8 @@ def persist_plan(trip_request: TripRequest, plan: BudgetPlan) -> None:
                     "nights": lb.nights,
                     "arrival_date": lb.arrival_date.isoformat() if lb.arrival_date else None,
                     "departure_date": lb.departure_date.isoformat() if lb.departure_date else None,
+                    "rooms": lb.rooms,
+                    "bed_configuration": lb.bed_configuration,
                     "hotels": [asdict(h) for h in lb.hotels],
                     "attractions": [asdict(a) for a in lb.attractions],
                     "visa": asdict(lb.visa),
