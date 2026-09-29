@@ -18,7 +18,7 @@ import requests
 from django.conf import settings
 
 from integrations.base import BaseClient, NotConfigured
-from integrations.countries import resolve_country
+from integrations.countries import NAMES_BY_ISO2, resolve_country
 from integrations.dataclasses import FlightOffer
 
 PRICES_URL = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates"
@@ -40,6 +40,48 @@ def _airports_by_name() -> dict[str, list[dict]]:
     for record in json.loads(AIRPORTS_PATH.read_text(encoding="utf-8")):
         index.setdefault(record["name"].casefold(), []).append(record)
     return index
+
+
+def search_city_suggestions(query: str, limit: int = 8) -> list[str]:
+    """"City, Country" suggestions for the planner form's autocomplete —
+    built from the exact same airports.json dataset resolve_iata() resolves
+    against, so picking a suggestion *guarantees* it later resolves to a
+    real IATA code. Closes the gap a typo like "Instabul" exposed: today
+    that silently falls back to a distance/fixture estimate with no live
+    flight, hotel or visa data and no indication to the user that anything
+    went wrong — autocomplete stops the typo from happening at all, rather
+    than handling it better after the fact.
+    """
+    query = query.strip().casefold()
+    if len(query) < 2:
+        return []
+
+    starts_with: list[str] = []
+    contains: list[str] = []
+    for name_key, records in _airports_by_name().items():
+        if name_key.startswith(query):
+            bucket = starts_with
+        elif query in name_key:
+            bucket = contains
+        else:
+            continue
+        seen_countries: set[str] = set()
+        for record in records:
+            country_code = record.get("country_code") or ""
+            if country_code in seen_countries:
+                continue
+            seen_countries.add(country_code)
+            country_name = NAMES_BY_ISO2.get(country_code, country_code)
+            label = f"{record['name']}, {country_name}" if country_name else record["name"]
+            bucket.append(label)
+
+    seen: set[str] = set()
+    deduped = []
+    for label in sorted(starts_with) + sorted(contains):
+        if label not in seen:
+            seen.add(label)
+            deduped.append(label)
+    return deduped[:limit]
 
 
 @lru_cache(maxsize=1)

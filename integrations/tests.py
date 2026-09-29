@@ -20,7 +20,7 @@ from integrations.serpapi import (
     SerpApiHotelsClient,
     SerpApiSearchClient,
 )
-from integrations.travelpayouts import TravelpayoutsClient, resolve_iata
+from integrations.travelpayouts import TravelpayoutsClient, resolve_iata, search_city_suggestions
 from integrations.visa import PassportIndexVisaClient
 
 # A real incident: REDIS_URL pointed at a host that had stopped resolving,
@@ -124,6 +124,42 @@ class ResolveIataTests(TestCase):
 
     def test_unknown_place_returns_none(self):
         self.assertIsNone(resolve_iata("Atlantis"))
+
+
+class SearchCitySuggestionsTests(TestCase):
+    def test_prefix_match_is_ranked_before_substring_match(self):
+        # "Istanbul" starts with "istan"; "Turkistan" only contains it.
+        results = search_city_suggestions("istan")
+        self.assertIn("Istanbul, Türkiye", results)
+        self.assertLess(results.index("Istanbul, Türkiye"), results.index("Turkistan, Kazakhstan"))
+
+    def test_every_suggestion_resolves_via_resolve_iata(self):
+        # The whole point: picking a suggestion must never itself fail to
+        # resolve later, the way "Instabul" (a typo) silently did.
+        for label in search_city_suggestions("par"):
+            self.assertIsNotNone(resolve_iata(label), f"{label!r} did not resolve")
+
+    def test_same_named_cities_in_different_countries_both_appear(self):
+        results = search_city_suggestions("london")
+        self.assertIn("London, United Kingdom", results)
+        self.assertIn("London, Canada", results)
+
+    def test_case_insensitive(self):
+        self.assertEqual(search_city_suggestions("ISTAN"), search_city_suggestions("istan"))
+
+    def test_short_query_returns_nothing(self):
+        self.assertEqual(search_city_suggestions("i"), [])
+        self.assertEqual(search_city_suggestions(""), [])
+
+    def test_no_match_returns_empty_list(self):
+        self.assertEqual(search_city_suggestions("instabul"), [])
+
+    def test_respects_limit(self):
+        results = search_city_suggestions("a", limit=3)
+        # "a" alone is short (len 1) so normally filtered — use a query with
+        # many real matches instead to exercise the limit.
+        results = search_city_suggestions("san", limit=3)
+        self.assertLessEqual(len(results), 3)
 
 
 @override_settings(TRAVELPAYOUTS_TOKEN="", CACHES=LOCMEM_CACHE)

@@ -275,6 +275,27 @@ class PlannerViewTests(TestCase):
 
 
 @override_settings(CACHES=LOCMEM_CACHE)
+class CityAutocompleteViewTests(TestCase):
+    def test_returns_matching_cities_as_json(self):
+        response = self.client.get(reverse("trips:city_autocomplete"), {"q": "istan"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Istanbul, Türkiye", response.json()["results"])
+
+    def test_short_query_returns_empty_results(self):
+        response = self.client.get(reverse("trips:city_autocomplete"), {"q": "i"})
+        self.assertEqual(response.json()["results"], [])
+
+    def test_missing_query_param_does_not_error(self):
+        response = self.client.get(reverse("trips:city_autocomplete"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_post_is_not_allowed(self):
+        response = self.client.post(reverse("trips:city_autocomplete"), {"q": "istan"})
+        self.assertEqual(response.status_code, 405)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
 class PlannerRateLimitTests(TestCase):
     """Regression coverage for a real incident: the rate limit used to apply
     to GET too, so heavy testing traffic from one IP locked that IP out of

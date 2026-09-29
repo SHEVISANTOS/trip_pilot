@@ -1,16 +1,25 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django_ratelimit.decorators import ratelimit
 
 from integrations.clients import IntegrationClients
+from integrations.travelpayouts import search_city_suggestions
 from pricing.budget import CURRENCY_SYMBOLS, build_plan, format_money
 from pricing.optimizer import optimize as optimize_plan
 from trips.forms import LegFormSet, TripRequestForm
 from trips.models import CHECKLIST_ITEMS, SavedTrip, TripLeg, TripRequest
 from trips.services import get_showcase_plan, inputs_from_trip_request, persist_plan, retry_stalled_plan_if_needed
 from trips.tasks import build_and_persist_plan_task
+
+
+@require_GET
+@ratelimit(key="ip", rate="120/h", method="GET", block=True)
+def city_autocomplete(request):
+    query = request.GET.get("q", "")
+    return JsonResponse({"results": search_city_suggestions(query)})
 
 
 @ratelimit(key="ip", rate="20/h", method="POST", block=True)

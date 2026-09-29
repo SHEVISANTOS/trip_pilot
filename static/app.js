@@ -34,8 +34,68 @@ function attachLegRemoveHandlers() {
   });
 }
 
+// City autocomplete — backed by /city-autocomplete/, which only ever
+// suggests names from the same airport dataset flight search resolves
+// against, so picking a suggestion guarantees it resolves later. Wired to
+// the departure field and every destination field, including ones added
+// after the page loads (attachCityAutocomplete() re-runs on each add-leg
+// click; already-wired inputs are skipped via the dataset flag).
+function closeAutocompleteDropdowns() {
+  document.querySelectorAll('.autocomplete-list').forEach((el) => el.remove());
+}
+
+function showCitySuggestions(input, results) {
+  closeAutocompleteDropdowns();
+  if (!results.length) return;
+  const list = document.createElement('div');
+  list.className = 'autocomplete-list';
+  results.forEach((label) => {
+    const item = document.createElement('div');
+    item.className = 'autocomplete-item';
+    item.textContent = label;
+    // mousedown (not click) fires before the input's blur, so the value
+    // is set before the blur handler's dropdown-close timer runs.
+    item.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      input.value = label;
+      closeAutocompleteDropdowns();
+    });
+    list.appendChild(item);
+  });
+  const rect = input.getBoundingClientRect();
+  list.style.left = `${rect.left + window.scrollX}px`;
+  list.style.top = `${rect.bottom + window.scrollY}px`;
+  list.style.width = `${rect.width}px`;
+  document.body.appendChild(list);
+}
+
+function attachCityAutocomplete(root) {
+  root.querySelectorAll('#id_departure, input[name$="-city"]').forEach((input) => {
+    if (input.dataset.autocompleteAttached) return;
+    input.dataset.autocompleteAttached = 'true';
+    input.setAttribute('autocomplete', 'off');
+    let debounceTimer;
+    input.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      const query = input.value.trim();
+      if (query.length < 2) {
+        closeAutocompleteDropdowns();
+        return;
+      }
+      debounceTimer = setTimeout(() => {
+        fetch(`/city-autocomplete/?q=${encodeURIComponent(query)}`)
+          .then((r) => r.json())
+          .then((data) => showCitySuggestions(input, data.results || []))
+          .catch(() => {});
+      }, 200);
+    });
+    input.addEventListener('blur', () => setTimeout(closeAutocompleteDropdowns, 150));
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   attachLegRemoveHandlers();
+  attachCityAutocomplete(document);
 
   const addLegBtn = $('add-leg');
   const emptyLegTemplate = $('empty-leg-form');
@@ -47,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
       $('leg-forms').appendChild(row);
       renumberLegForms();
       attachLegRemoveHandlers();
+      attachCityAutocomplete(row);
     });
   }
 
