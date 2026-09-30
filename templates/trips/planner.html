@@ -13,7 +13,7 @@
     <div class="mini-row"><b>Budget</b><span>{{ showcase.budget }}</span></div>
     <div class="mini-row"><b>Trip cost</b><span class="{% if showcase.within_budget %}good{% endif %}">{{ showcase.total }}</span></div>
     <div class="mini-row"><b>Remaining</b><span class="{% if showcase.within_budget %}good{% endif %}">{{ showcase.remaining }}</span></div>
-    <div class="progress"><i style="width:{% if showcase.percent_used > 100 %}100{% else %}{{ showcase.percent_used }}{% endif %}%"></i></div>
+    <div class="progress"><i class="{% if not showcase.within_budget %}over{% endif %}" style="width:{% if showcase.percent_used > 100 %}100{% else %}{{ showcase.percent_used }}{% endif %}%"></i></div>
     <small>{{ showcase.percent_used }}% of budget allocated · {{ showcase.nights }} nights{% if showcase.airline %} · {{ showcase.airline }}{% endif %}</small>
   </div>
   {% endif %}
