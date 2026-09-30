@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="hero">
+  <div class="hero-inner">
   <div class="hero-copy">
     <div class="eyebrow">AI TRAVEL PLANNER & BUDGET ASSISTANT</div>
     <h1>Tell us where you want to go.<br><span>Tell us your budget.</span></h1>
@@ -17,6 +18,7 @@
     <small>{{ showcase.percent_used }}% of budget allocated · {{ showcase.nights }} nights{% if showcase.airline %} · {{ showcase.airline }}{% endif %}</small>
   </div>
   {% endif %}
+  </div>
 </section>
 
 <section id="planner" class="planner section">
