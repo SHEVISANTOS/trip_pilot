@@ -16,6 +16,12 @@
      layout + no emoji render correctly under both engines.
   */
   body{font-family:Helvetica,Arial,sans-serif;color:#14213d;margin:0;padding:28px 34px}
+  table.brand-table{border-collapse:collapse;margin-bottom:22px}
+  table.brand-table td{padding:0;vertical-align:middle}
+  .brand-logo{width:28px}
+  .brand-logo img{width:28px;height:28px}
+  .brand-name{font-size:16px;font-weight:bold;padding-left:8px!important}
+  .brand-name .ai{color:#276ef1}
   .eyebrow{font-size:10px;font-weight:bold;letter-spacing:1.4px;color:#276ef1}
   h1{font-size:26px;margin:8px 0 6px}
   .meta{font-size:11px;color:#667085;margin:0 0 18px}
@@ -41,6 +47,12 @@
 </style>
 </head>
 <body>
+  {% if logo_data_uri %}
+  <table class="brand-table"><tr>
+    <td class="brand-logo"><img src="{{ logo_data_uri }}" width="28" height="28"></td>
+    <td class="brand-name">TripPilot <span class="ai">AI</span></td>
+  </tr></table>
+  {% endif %}
   <div class="eyebrow">TRAVEL ITINERARY</div>
   {% if is_multi_city %}<h1>{{ route }}</h1>{% else %}<h1>{{ trip_request.destination }}</h1>{% endif %}
   <p class="meta">{{ trip_request.departure }} &bull; {{ breakdown.people }} traveller{{ breakdown.people|pluralize }} &bull; {{ breakdown.nights }} nights{% if is_multi_city %} &bull; {{ breakdown.legs|length }} destinations{% endif %} &bull; {{ trip_request.purpose }}</p>

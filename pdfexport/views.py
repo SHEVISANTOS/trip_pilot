@@ -1,6 +1,8 @@
+import base64
 import io
 import logging
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -9,6 +11,20 @@ from django.template.loader import render_to_string
 from trips.models import SavedTrip
 
 logger = logging.getLogger(__name__)
+
+# Base64-embedded rather than referenced by path/URL: neither renderer needs
+# a filesystem-path lookup or a live HTTP round-trip this way, which matters
+# on Vercel specifically — STATIC_ROOT vs STATICFILES_DIRS resolution at
+# serverless runtime isn't something to assume works without checking, and
+# this sidesteps the question entirely. ~2KB PNG, negligible either way.
+# Read at import time, guarded: pdfexport.urls loads on every request (not
+# just PDF export), so a missing file here must not take down the whole site
+# — LOGO_DATA_URI just comes back empty and the template skips the <img>.
+try:
+    with open(settings.BASE_DIR / "static" / "favicon-192.png", "rb") as _logo_file:
+        LOGO_DATA_URI = "data:image/png;base64," + base64.b64encode(_logo_file.read()).decode("ascii")
+except OSError:
+    LOGO_DATA_URI = ""
 
 
 def _render_pdf_bytes(html_string: str) -> bytes:
@@ -56,6 +72,7 @@ def export_pdf(request, pk):
             "saved_trip": saved_trip,
             "is_multi_city": is_multi_city,
             "route": route,
+            "logo_data_uri": LOGO_DATA_URI,
         },
     )
     try:
