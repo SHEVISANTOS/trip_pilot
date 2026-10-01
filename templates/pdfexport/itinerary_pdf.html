@@ -1,90 +1,101 @@
-{% load static trip_extras %}
+{% load trip_extras %}
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <title>{% if is_multi_city %}{{ route }}{% else %}{{ trip_request.destination }}{% endif %} — TripPilot AI Itinerary</title>
-<link rel="stylesheet" href="{% static 'style.css' %}">
 <style>
-  body{background:#fff}
-  .topbar,nav,.hero,.modal,form,button{display:none!important}
-  .results{margin:0;padding:0}
-  .panel,.card{break-inside:avoid}
+  /* Self-contained, table-based styling — deliberately not the main site's
+     style.css. That stylesheet leans on CSS custom properties, grid and
+     flexbox throughout; xhtml2pdf (the fallback renderer for deployments
+     without WeasyPrint's system libraries — see pdfexport/views.py) only
+     understands CSS 2.1-ish properties, silently drops var()/grid/flex
+     declarations, and has no font covering emoji. Verified live: reusing
+     style.css rendered as an unstyled, colorless, stacked-box document with
+     blank boxes where every icon should be. Literal hex colors + <table>
+     layout + no emoji render correctly under both engines.
+  */
+  body{font-family:Helvetica,Arial,sans-serif;color:#14213d;margin:0;padding:28px 34px}
+  .eyebrow{font-size:10px;font-weight:bold;letter-spacing:1.4px;color:#276ef1}
+  h1{font-size:26px;margin:8px 0 6px}
+  .meta{font-size:11px;color:#667085;margin:0 0 18px}
+  .kpi-table{width:100%;border-collapse:collapse;margin-bottom:20px}
+  .kpi-table td{border:1px solid #dfe6f2;padding:12px 14px;width:33%}
+  .kpi-label{font-size:9px;font-weight:bold;color:#667085;letter-spacing:.5px}
+  .kpi-value{font-size:20px;font-weight:bold;margin-top:4px}
+  .kpi-value.good{color:#138a57}
+  h2{font-size:15px;border-bottom:1px solid #dfe6f2;padding-bottom:8px;margin:22px 0 10px}
+  table.data-table{width:100%;border-collapse:collapse;font-size:11px}
+  table.data-table td{padding:8px 4px;border-bottom:1px solid #dfe6f2;vertical-align:top}
+  table.data-table td.amount{text-align:right;font-weight:bold;white-space:nowrap}
+  .detail{color:#667085;font-size:10px}
+  .day-block{padding:2px 0 8px 0;margin:14px 0}
+  .day-title{font-size:13px;font-weight:bold;margin:0 0 6px;border-left:3px solid #276ef1;padding-left:11px}
+  table.timeline-table{width:100%;border-collapse:collapse;font-size:11px}
+  table.timeline-table td{padding:5px 4px}
+  .time{font-weight:bold;color:#276ef1;white-space:nowrap;width:75px;border-left:3px solid #276ef1;padding-left:11px!important}
+  .cost{text-align:right;white-space:nowrap}
+  table.checklist-table{width:100%;border-collapse:collapse;font-size:11px}
+  table.checklist-table td{padding:6px 8px;border:1px solid #dfe6f2;width:33%}
+  .disclaimer{font-size:9px;color:#667085;margin-top:24px}
 </style>
 </head>
 <body>
-<header class="topbar" style="display:flex!important">
-  <div class="brand"><span class="logo">✈</span><span>TripPilot <b>AI</b></span></div>
-</header>
-<section class="results">
-  <div class="trip-banner">
-    <div>
-      <span class="eyebrow">TRAVEL ITINERARY</span>
-      {% if is_multi_city %}<h2>{{ route }}</h2>{% else %}<h2>{{ trip_request.destination }}</h2>{% endif %}
-      <p>{{ trip_request.departure }} • {{ breakdown.people }} traveller{{ breakdown.people|pluralize }} • {{ breakdown.nights }} nights{% if is_multi_city %} • {{ breakdown.legs|length }} destinations{% endif %} • {{ trip_request.purpose }}</p>
-    </div>
-  </div>
+  <div class="eyebrow">TRAVEL ITINERARY</div>
+  {% if is_multi_city %}<h1>{{ route }}</h1>{% else %}<h1>{{ trip_request.destination }}</h1>{% endif %}
+  <p class="meta">{{ trip_request.departure }} &bull; {{ breakdown.people }} traveller{{ breakdown.people|pluralize }} &bull; {{ breakdown.nights }} nights{% if is_multi_city %} &bull; {{ breakdown.legs|length }} destinations{% endif %} &bull; {{ trip_request.purpose }}</p>
 
-  <div class="kpis">
-    <div><small>TRAVEL BUDGET</small><strong>{{ trip_request.budget|money:trip_request.currency }}</strong></div>
-    <div><small>ESTIMATED COST</small><strong>{{ breakdown.total|money:trip_request.currency }}</strong></div>
-    <div><small>REMAINING</small><strong class="{% if breakdown.remaining >= 0 %}good{% endif %}">{{ breakdown.remaining|money:trip_request.currency }}</strong></div>
-  </div>
+  <table class="kpi-table">
+    <tr>
+      <td><div class="kpi-label">TRAVEL BUDGET</div><div class="kpi-value">{{ trip_request.budget|money:trip_request.currency }}</div></td>
+      <td><div class="kpi-label">ESTIMATED COST</div><div class="kpi-value">{{ breakdown.total|money:trip_request.currency }}</div></td>
+      <td><div class="kpi-label">REMAINING</div><div class="kpi-value{% if breakdown.remaining >= 0 %} good{% endif %}">{{ breakdown.remaining|money:trip_request.currency }}</div></td>
+    </tr>
+  </table>
 
-  <article class="panel full">
-    <div class="panel-head"><h3>💰 Budget Allocation</h3></div>
-    <table class="data-table">
-      <tbody>
-      {% for item in breakdown.items %}
-        <tr><td><b>{{ item.label }}</b><br><small>{{ item.detail }}</small></td><td>{{ item.amount|money:trip_request.currency }}</td></tr>
-      {% endfor %}
-        <tr><td><b>TOTAL</b></td><td>{{ breakdown.total|money:trip_request.currency }}</td></tr>
-      </tbody>
-    </table>
-  </article>
+  <h2>Budget Allocation</h2>
+  <table class="data-table">
+    {% for item in breakdown.items %}
+    <tr><td><b>{{ item.label }}</b><br><span class="detail">{{ item.detail }}</span></td><td class="amount">{{ item.amount|money:trip_request.currency }}</td></tr>
+    {% endfor %}
+    <tr><td><b>TOTAL</b></td><td class="amount"><b>{{ breakdown.total|money:trip_request.currency }}</b></td></tr>
+  </table>
 
-  <article class="panel full">
-    <div class="panel-head"><h3>🛂 Visa & Entry</h3></div>
+  <h2>Visa &amp; Entry</h2>
+  <table class="data-table">
     {% if is_multi_city %}
-    <ul class="small-list">
       {% for leg in breakdown.legs %}
-      <li>
-        <span><b>{{ leg.city }}</b><br><small>{{ leg.visa.type }} — {{ leg.visa.method }}</small><br><small>{{ leg.visa.stay }}</small></span>
-        <b>{{ leg.visa_cost|money:trip_request.currency }}</b>
-      </li>
+      <tr><td><b>{{ leg.city }}</b><br><span class="detail">{{ leg.visa.type }} — {{ leg.visa.method }}<br>{{ leg.visa.stay }}</span></td><td class="amount">{{ leg.visa_cost|money:trip_request.currency }}</td></tr>
       {% endfor %}
-    </ul>
     {% else %}
-    <ul class="small-list">
-      <li><span><b>Type</b><br>{{ breakdown.visa.type }}</span></li>
-      <li><span><b>Application</b><br>{{ breakdown.visa.method }}</span></li>
-      <li><span><b>Length of stay</b><br>{{ breakdown.visa.stay }}</span></li>
-    </ul>
+      <tr><td><b>Type</b></td><td>{{ breakdown.visa.type }}</td></tr>
+      <tr><td><b>Application</b></td><td>{{ breakdown.visa.method }}</td></tr>
+      <tr><td><b>Length of stay</b></td><td>{{ breakdown.visa.stay }}</td></tr>
     {% endif %}
-  </article>
+  </table>
 
-  <section class="panel full">
-    <div class="panel-head"><h3>📅 Day-by-Day Itinerary</h3></div>
-    {% for day in itinerary.days.all %}
-      <div class="it-day">
-        <h4>{{ day.title }}</h4>
+  <h2>Day-by-Day Itinerary</h2>
+  {% for day in itinerary.days.all %}
+    <div class="day-block">
+      <div class="day-title">{{ day.title }}</div>
+      <table class="timeline-table">
         {% for activity in day.activities.all %}
-        <div class="timeline"><time>{{ activity.time }}</time><span>{{ activity.title }}</span><span class="cost">{{ activity.cost_display }}</span></div>
+        <tr><td class="time">{{ activity.time }}</td><td>{{ activity.title }}</td><td class="cost">{{ activity.cost_display }}</td></tr>
         {% endfor %}
-      </div>
-    {% endfor %}
-  </section>
-
-  <section class="panel full">
-    <div class="panel-head"><h3>📋 Booking Checklist</h3></div>
-    <div class="checklist">
-    {% for entry in saved_trip.checklist %}
-      <div class="check {% if entry.done %}done{% endif %}">{% if entry.done %}☑{% else %}☐{% endif %} {{ entry.label }}</div>
-    {% endfor %}
+      </table>
     </div>
-  </section>
+  {% endfor %}
+
+  <h2>Booking Checklist</h2>
+  <table class="checklist-table">
+    <tr>
+    {% for entry in saved_trip.checklist %}
+      <td>{% if entry.done %}[x]{% else %}[ ]{% endif %} {{ entry.label }}</td>
+      {% if forloop.counter|divisibleby:3 and not forloop.last %}</tr><tr>{% endif %}
+    {% endfor %}
+    </tr>
+  </table>
 
   <p class="disclaimer">Generated by TripPilot AI. Prices are estimates — verify live pricing and immigration requirements before booking.</p>
-</section>
 </body>
 </html>

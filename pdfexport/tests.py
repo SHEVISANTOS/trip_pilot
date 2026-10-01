@@ -81,15 +81,29 @@ class ExportPdfViewTests(TestCase):
         response = self.client.get(reverse("pdfexport:export", kwargs={"pk": saved_trip.pk}))
         self.assertEqual(response.status_code, 404)
 
-    def test_missing_weasyprint_system_libraries_degrades_gracefully(self):
-        # Simulates a host (serverless platforms especially) that has the
-        # weasyprint package installed but not its native Pango/Cairo/
-        # GDK-Pixbuf dependencies — WeasyPrint raises OSError in that case.
-        # This must return a clean error response, not crash the request.
+    def test_missing_weasyprint_system_libraries_falls_back_to_xhtml2pdf(self):
+        # Simulates a host (serverless platforms especially, confirmed live
+        # on Vercel) that has the weasyprint package installed but not its
+        # native Pango/Cairo/GDK-Pixbuf dependencies — WeasyPrint raises
+        # OSError in that case. xhtml2pdf (pure Python, no system libraries)
+        # takes over and still produces a real PDF rather than erroring.
         owner = User.objects.create_user(username="pdfowner4", password="pw12345!")
         saved_trip = create_saved_trip(owner)
         self.client.force_login(owner)
         with patch("weasyprint.HTML", side_effect=OSError("cannot load library libpango-1.0")):
             response = self.client.get(reverse("pdfexport:export", kwargs={"pk": saved_trip.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_both_renderers_failing_degrades_gracefully(self):
+        # The true last resort: WeasyPrint unavailable *and* xhtml2pdf
+        # itself errors out. Must still return a clean response, not crash.
+        owner = User.objects.create_user(username="pdfowner5", password="pw12345!")
+        saved_trip = create_saved_trip(owner)
+        self.client.force_login(owner)
+        with patch("weasyprint.HTML", side_effect=OSError("cannot load library libpango-1.0")):
+            with patch("xhtml2pdf.pisa.CreatePDF", side_effect=RuntimeError("boom")):
+                response = self.client.get(reverse("pdfexport:export", kwargs={"pk": saved_trip.pk}))
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response["Content-Type"], "text/plain")
