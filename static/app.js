@@ -94,6 +94,12 @@ function attachCityAutocomplete(root) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // trips/pending.html: poll until the async plan finishes generating. A
+  // data attribute (not an inline <script>) so the page works under a
+  // strict script-src 'self' Content-Security-Policy with no exceptions.
+  const autoReload = document.body.dataset.autoReload;
+  if (autoReload) setTimeout(() => location.reload(), parseInt(autoReload, 10));
+
   attachLegRemoveHandlers();
   attachCityAutocomplete(document);
 

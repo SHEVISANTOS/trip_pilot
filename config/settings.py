@@ -46,9 +46,21 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_SECONDS = 31536000
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+    SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=True)
+    # Off by default: preload is a one-way submission to browsers' built-in
+    # HSTS lists, essentially irreversible in practice — wrong to enable
+    # while this runs on a temporary domain (a Vercel preview URL/alias, not
+    # a permanent one). Flip on only once the project is on a domain it'll
+    # keep.
+    SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=False)
+
+# The Django admin URL — kept out of the obvious /admin/ path. Overridable
+# via DJANGO_ADMIN_URL; the default below is just a fixed, non-dictionary
+# slug (not auto-regenerated — that would break every bookmarked admin link
+# on every process restart), not a secret on its own. Trailing slash always
+# present regardless of how the env var is written.
+ADMIN_URL = env("DJANGO_ADMIN_URL", default="mgmt-321073c7").strip("/") + "/"
 
 
 # Application definition
@@ -78,6 +90,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "config.middleware.SecurityHeadersMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -366,9 +379,9 @@ UNFOLD = {
                 "title": "Trips",
                 "separator": True,
                 "items": [
-                    {"title": "Trip requests", "icon": "map", "link": "/admin/trips/triprequest/"},
-                    {"title": "Saved trips", "icon": "bookmark", "link": "/admin/trips/savedtrip/"},
-                    {"title": "Itineraries", "icon": "calendar_month", "link": "/admin/trips/itinerary/"},
+                    {"title": "Trip requests", "icon": "map", "link": f"/{ADMIN_URL}trips/triprequest/"},
+                    {"title": "Saved trips", "icon": "bookmark", "link": f"/{ADMIN_URL}trips/savedtrip/"},
+                    {"title": "Itineraries", "icon": "calendar_month", "link": f"/{ADMIN_URL}trips/itinerary/"},
                 ],
             },
             {
@@ -378,10 +391,50 @@ UNFOLD = {
                     {
                         "title": "Integration health",
                         "icon": "monitor_heart",
-                        "link": "/admin/integrations/health/",
+                        "link": f"/{ADMIN_URL}integrations/health/",
                     },
                 ],
             },
         ],
     },
+}
+
+
+# --- Security headers --------------------------------------------------
+# Referrer-Policy is handled by Django's own SecurityMiddleware (reads this
+# setting directly) — no custom code needed. CSP and Permissions-Policy are
+# applied by config.middleware.SecurityHeadersMiddleware below, since Django
+# has no built-in support for either.
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+
+PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+
+# Report-only while verifying a policy change in production doesn't break
+# anything, without actually blocking requests yet.
+CONTENT_SECURITY_POLICY_REPORT_ONLY = env.bool("CSP_REPORT_ONLY", default=False)
+
+# Every script is self-hosted (static/app.js — no inline <script> anywhere,
+# verified: trips/pending.html's auto-reload moved into app.js specifically
+# so script-src needs zero exceptions) and there's no third-party image,
+# font or stylesheet host anywhere in the templates (checked: no <img>,
+# no fonts.googleapis.com, no CDN links) — so the baseline policy below is
+# as strict as Django itself allows for a vanilla app.
+#
+# style-src needs 'unsafe-inline': the existing templates use inline
+# style="..." attributes throughout (not something this pass refactors —
+# out of scope for a minimal security change, and style injection is a far
+# lower-severity CSP gap than script injection, which stays fully locked
+# down). form-action allows Google's own domain only for the OAuth login
+# redirect flow.
+CONTENT_SECURITY_POLICY = {
+    "default-src": ["'self'"],
+    "script-src": ["'self'"],
+    "style-src": ["'self'", "'unsafe-inline'"],
+    "img-src": ["'self'", "data:"],
+    "font-src": ["'self'"],
+    "connect-src": ["'self'"],
+    "form-action": ["'self'", "https://accounts.google.com"],
+    "frame-ancestors": ["'none'"],
+    "base-uri": ["'self'"],
+    "object-src": ["'none'"],
 }
