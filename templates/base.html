@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="{% static 'apple-touch-icon.png' %}">
 <link rel="stylesheet" href="{% static 'style.css' %}">
 </head>
-<body>
+<body{% block body_attrs %}{% endblock %}>
 <header class="topbar">
   <div class="brand"><span class="logo">✈</span><span>TripPilot <b>AI</b></span></div>
   <nav>

@@ -1,8 +1,9 @@
+from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path(settings.ADMIN_URL, admin.site.urls),
     # Only the Google OAuth + socialaccount error/connection views — not the
     # full allauth.urls, which bundles its own login/signup/password-reset
     # at this same "accounts/" prefix and would collide with accounts.urls
