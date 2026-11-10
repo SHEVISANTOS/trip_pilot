@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import Profile
@@ -303,6 +303,42 @@ class GoogleSignInTests(TestCase):
         for url_name in ("accounts:login", "accounts:signup"):
             response = self.client.get(reverse(url_name))
             self.assertContains(response, reverse("google_login"))
+
+    @override_settings(DEBUG=False)
+    def test_login_cancelled_page_does_not_crash_and_links_back_to_login(self):
+        # Real incident: allauth's LoginCancelledView.get_context_data()
+        # calls reverse("account_login") directly in Python — not a
+        # template {% url %} tag, which Django's `as var` form swallows
+        # safely — and we never register that name (only accounts.urls'
+        # namespaced accounts:login, since the full allauth.urls would
+        # collide with it). Confirmed live with DEBUG=False: a bare
+        # NoReverseMatch surfaced as an unhandled 500.
+        response = self.client.get(reverse("socialaccount_login_cancelled"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("accounts:login"))
+        self.assertContains(response, reverse("google_login"))
+
+    @override_settings(DEBUG=False)
+    def test_authentication_error_page_does_not_crash_and_links_back_to_login(self):
+        # Same root cause as the cancelled-login test above — allauth's
+        # LoginErrorView hits the identical unguarded reverse("account_login").
+        # 401, not 200: that status is set directly by LoginErrorView.get()
+        # (HTTPStatus.UNAUTHORIZED) — correct for "third-party login failed"
+        # and not something this fix should override.
+        response = self.client.get(reverse("socialaccount_login_error"))
+        self.assertEqual(response.status_code, 401)
+        self.assertContains(response, reverse("accounts:login"), status_code=401)
+        self.assertContains(response, reverse("google_login"), status_code=401)
+
+    @override_settings(DEBUG=False)
+    def test_social_signup_page_redirects_to_login_without_crashing(self):
+        # SignupView.dispatch() hits the same unguarded reverse("account_login")
+        # whenever there's no pending social-signup session in progress (the
+        # common case — e.g. navigating here directly, or after the session
+        # expired) — SOCIALACCOUNT_AUTO_SIGNUP=True means a real in-progress
+        # signup essentially never reaches this confirmation page at all.
+        response = self.client.get(reverse("socialaccount_signup"), follow=True)
+        self.assertRedirects(response, reverse("accounts:login"))
 
 
 class LogoutTests(TestCase):

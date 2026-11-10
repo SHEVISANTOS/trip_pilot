@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Sign-in cancelled — TripPilot AI{% endblock %}
+{% block robots_meta %}noindex, follow{% endblock %}
+{% block content %}
+<section class="planner section">
+  <div class="section-title"><div><span class="eyebrow">GOOGLE SIGN-IN</span><h2>You cancelled Google sign-in.</h2></div></div>
+  <p>No account was created and nothing was signed in. You can try again, or log in a different way.</p>
+  <div class="form-actions" style="margin-top:14px">
+    <a class="primary" href="{% url 'google_login' %}">Try Google sign-in again</a>
+    <a class="secondary" href="{% url 'accounts:login' %}">Log in another way</a>
+  </div>
+</section>
+{% endblock %}

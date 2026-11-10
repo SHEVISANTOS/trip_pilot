@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Sign-in failed — TripPilot AI{% endblock %}
+{% block robots_meta %}noindex, follow{% endblock %}
+{% block content %}
+<section class="planner section">
+  <div class="section-title"><div><span class="eyebrow">GOOGLE SIGN-IN</span><h2>We couldn't sign you in with Google.</h2></div></div>
+  <p>Something went wrong on Google's side, or the request timed out. Please try again, or log in another way.</p>
+  <div class="form-actions" style="margin-top:14px">
+    <a class="primary" href="{% url 'google_login' %}">Try Google sign-in again</a>
+    <a class="secondary" href="{% url 'accounts:login' %}">Log in another way</a>
+  </div>
+</section>
+{% endblock %}
