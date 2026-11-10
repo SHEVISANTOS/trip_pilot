@@ -445,3 +445,15 @@ CONTENT_SECURITY_POLICY = {
     "base-uri": ["'self'"],
     "object-src": ["'none'"],
 }
+
+# --- Login brute-force protection (django-axes) ---
+INSTALLED_APPS = [*INSTALLED_APPS, "axes"]
+AUTHENTICATION_BACKENDS = ["axes.backends.AxesStandaloneBackend",
+    *globals().get("AUTHENTICATION_BACKENDS", ["django.contrib.auth.backends.ModelBackend"])]
+MIDDLEWARE = [*MIDDLEWARE, "axes.middleware.AxesMiddleware"]
+AXES_FAILURE_LIMIT = 5              # wrong passwords before lockout
+AXES_COOLOFF_TIME = 1               # lockout lasts 1 hour
+AXES_LOCKOUT_PARAMETERS = ["ip_address"]
+AXES_RESET_ON_SUCCESS = True
+AXES_CLIENT_IP_CALLABLE = lambda request: request.META.get("HTTP_X_REAL_IP") or request.META.get("REMOTE_ADDR")
+ALLAUTH_TRUSTED_CLIENT_IP_HEADER = "X-Real-IP"
