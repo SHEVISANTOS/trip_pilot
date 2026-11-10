@@ -41,6 +41,14 @@
 {% block content %}{% endblock %}
 </main>
 
+<footer style="border-top:1px solid var(--line);padding:22px 8%;text-align:center;font-size:13px;color:var(--muted)">
+  <a href="{% url 'legal:privacy' %}" style="color:var(--muted)">Privacy</a>
+  &middot;
+  <a href="{% url 'legal:terms' %}" style="color:var(--muted)">Terms</a>
+  &middot;
+  &copy; {% now "Y" %} TripPilot AI
+</footer>
+
 <script src="{% static 'app.js' %}"></script>
 {% block extra_scripts %}{% endblock %}
 </body>

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Terms of Service — TripPilot AI{% endblock %}
+{% block content %}
+<section class="section">
+  <div style="max-width:760px;margin:0 auto">
+    <div class="alert warn"><b>Placeholder text</b> — to be reviewed by a lawyer before launch.</div>
+
+    <span class="eyebrow">LEGAL</span>
+    <h2>Terms of Service</h2>
+    <p>Last updated: {{ last_updated|date:"F j, Y" }}</p>
+
+    <h3>Using the service</h3>
+    <p>TripPilot AI is operated by VOT MWANZA LIMITED (Tanzania). It helps you plan a trip budget and
+    itinerary using a mix of live travel data and AI-generated estimates. By using it, you agree to these
+    terms.</p>
+
+    <h3>Accounts</h3>
+    <p>You're responsible for keeping your password confidential and for anything done under your account.
+    Tell us right away if you suspect unauthorized use. Provide accurate information when you sign up.</p>
+
+    <h3>Estimates, not guarantees</h3>
+    <p>Prices, visa requirements, transfer times and other figures in your plan come from a mix of live
+    provider data and AI-generated estimates, and can be wrong or out of date. Always verify prices, visa
+    requirements and availability directly with the airline, hotel, visa authority or other provider before
+    booking or travelling.</p>
+
+    <h3>Third-party bookings</h3>
+    <p>"View / Book" links take you to a third-party provider's own site. Any booking you make there is a
+    contract between you and that provider — we are not a party to it and are not responsible for its
+    price, availability, cancellation terms or service.</p>
+
+    <h3>Acceptable use</h3>
+    <p>Don't use TripPilot AI to break the law, scrape or attack the service, interfere with other users,
+    or attempt to access accounts or data that aren't yours.</p>
+
+    <h3>No warranty; limitation of liability</h3>
+    <p>TripPilot AI is provided "as is," without warranty of any kind, including accuracy or fitness for a
+    particular purpose. To the fullest extent permitted by law, VOT MWANZA LIMITED is not liable for any
+    indirect, incidental or consequential damages arising from your use of the service, including losses
+    from a booking made on a third-party site.</p>
+
+    <h3>Termination</h3>
+    <p>You may stop using the service and delete your account at any time. We may suspend or terminate
+    accounts that violate these terms.</p>
+
+    <h3>Governing law</h3>
+    <p>These terms are governed by the laws of Tanzania.</p>
+
+    <h3>Changes to these terms</h3>
+    <p>We may update these terms from time to time. Continuing to use TripPilot AI after a change means
+    you accept the updated terms. The "Last updated" date above will always reflect the most recent
+    version.</p>
+
+    <h3>Contact</h3>
+    <p>Questions about these terms: <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+  </div>
+</section>
+{% endblock %}

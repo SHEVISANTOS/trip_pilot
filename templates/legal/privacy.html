@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy — TripPilot AI{% endblock %}
+{% block content %}
+<section class="section">
+  <div style="max-width:760px;margin:0 auto">
+    <div class="alert warn"><b>Placeholder text</b> — to be reviewed by a lawyer before launch.</div>
+
+    <span class="eyebrow">LEGAL</span>
+    <h2>Privacy Policy</h2>
+    <p>Last updated: {{ last_updated|date:"F j, Y" }}</p>
+
+    <h3>Who we are</h3>
+    <p>TripPilot AI is operated by VOT MWANZA LIMITED, a company registered in Tanzania. If you have any
+    question about this policy or your data, contact us at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+
+    <h3>What we collect</h3>
+    <p><b>Account data.</b> If you sign up directly, we collect your email address and password (stored
+    encrypted, never in plain text). If you sign in with "Continue with Google," Google shares your name,
+    email address and profile picture with us — only after you approve this on Google's own sign-in screen.</p>
+    <p><b>Trip data.</b> The destinations, dates, budget, nationality, travel style, interests and other
+    details you enter into the planner, plus the itineraries, budget breakdowns and booking checklists we
+    generate from them and that you choose to save.</p>
+    <p><b>Technical data.</b> Basic server logs — IP address, browser type, pages requested — kept for
+    security and debugging, not for tracking you across other sites.</p>
+    <p><b>Cookies.</b> Only essential cookies: one to keep you signed in (session) and one to protect forms
+    from cross-site request forgery (CSRF). We don't use advertising or analytics cookies.</p>
+
+    <h3>Who we share it with</h3>
+    <p>We never sell your data. The following services help run TripPilot AI and each sees only what it
+    needs to do its specific job:</p>
+    <ul>
+      <li><b>Google</b> — Sign-In, if you choose "Continue with Google," and Google Maps, for estimating
+      transfer times between the airport and your hotel.</li>
+      <li><b>Google Gemini</b> — asked to estimate things like local attractions only when no real travel
+      data provider has coverage for a destination. It receives the destination name only, never your
+      account details.</li>
+      <li><b>Brevo</b> — sends transactional emails on our behalf, such as password-reset links. It
+      receives the recipient's email address and the email content, nothing else.</li>
+      <li><b>Travel data providers</b> — SerpApi, SearchApi.io, Travelpayouts, LiteAPI, StayAPI,
+      OpenTripMap, eSIM Go, OpenStreetMap (Nominatim/OSRM) and an exchange-rate provider, used to fetch
+      real flight, hotel, attraction, routing and currency data. Each receives only the search terms your
+      trip needs — destination, dates, nationality, party size — never your account email or identity.</li>
+    </ul>
+
+    <h3>Google user data</h3>
+    <p>Data we receive from Google is used only to sign you in and show your account — never sold, and
+    never used for advertising. Our use of Google user data complies with the
+    <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>,
+    including its Limited Use requirements.</p>
+
+    <h3>How long we keep it</h3>
+    <p>We keep your account and trip data for as long as your account is active. To delete your account
+    and associated data, email <a href="mailto:{{ support_email }}">{{ support_email }}</a> — we'll
+    process the deletion within a reasonable time.</p>
+
+    <h3>Security</h3>
+    <p>We use industry-standard measures — encrypted password storage, HTTPS in transit — to protect your
+    data. No method of transmission or storage is 100% secure, and we can't guarantee absolute security.</p>
+
+    <h3>Children</h3>
+    <p>TripPilot AI is not directed to, and we do not knowingly collect data from, children under 13.</p>
+
+    <h3>Changes to this policy</h3>
+    <p>We may update this policy from time to time. The "Last updated" date above will always reflect the
+    most recent version.</p>
+
+    <h3>Contact</h3>
+    <p>Questions about this policy or your data: <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+  </div>
+</section>
+{% endblock %}

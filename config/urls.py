@@ -12,5 +12,8 @@ urlpatterns = [
     path("accounts/social/", include("allauth.socialaccount.urls")),
     path("accounts/", include("accounts.urls")),
     path("pdf/", include("pdfexport.urls")),
+    # Before trips.urls below — its "" include has a catch-all-ish
+    # "<int:pk>/" pattern, and legal's own URLs must resolve first.
+    path("", include("legal.urls")),
     path("", include("trips.urls")),
 ]

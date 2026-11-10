@@ -2,6 +2,7 @@
 Django settings for the TripPilot AI project.
 """
 
+from email.utils import parseaddr
 from pathlib import Path
 
 import environ
@@ -86,6 +87,7 @@ INSTALLED_APPS = [
     "trips",
     "integrations",
     "pdfexport",
+    "legal",
 ]
 
 MIDDLEWARE = [
@@ -322,6 +324,11 @@ else:
 # owner's own address. Sending from anything else (a made-up domain, etc.)
 # is rejected outright, so this can't default to something invented.
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="TripPilot AI <shevijeremiah@gmail.com>")
+# Contact address shown on the Privacy Policy / Terms pages. Defaults to
+# whatever address DEFAULT_FROM_EMAIL already resolves to (parsed out of its
+# "Name <addr>" form) rather than duplicating the address in two env vars —
+# override with a real support inbox once one exists.
+SUPPORT_EMAIL = env("SUPPORT_EMAIL", default="") or parseaddr(DEFAULT_FROM_EMAIL)[1]
 
 
 # Rate limiting (django-ratelimit) for the planner endpoint.
