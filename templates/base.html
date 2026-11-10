@@ -4,12 +4,42 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 {% load static %}
+{% block meta_description %}
+<meta name="description" content="Plan a complete trip budget in minutes — real flight and hotel prices, visa guidance, transfers, food and a day-by-day itinerary, built around the budget you give it.">
+{% endblock %}
+<meta name="robots" content="{% block robots_meta %}index, follow{% endblock %}">
+<link rel="canonical" href="{{ SITE_URL }}{% block canonical_path %}{{ request.path }}{% endblock %}">
+
 <title>{% block title %}TripPilot AI — Plan Your Trip Around Your Budget{% endblock %}</title>
 <link rel="icon" href="{% static 'favicon.svg' %}" type="image/svg+xml">
 <link rel="icon" href="{% static 'favicon.ico' %}" sizes="any">
 <link rel="icon" href="{% static 'favicon-32.png' %}" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="{% static 'apple-touch-icon.png' %}">
 <link rel="stylesheet" href="{% static 'style.css' %}">
+
+{% block og_tags %}
+<meta property="og:site_name" content="TripPilot AI">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ SITE_URL }}{{ request.path }}">
+<meta property="og:title" content="{% block og_title %}TripPilot AI — Plan Your Trip Around Your Budget{% endblock %}">
+<meta property="og:description" content="{% block og_description %}Plan a complete trip budget in minutes — real flight and hotel prices, visa guidance, transfers, food and a day-by-day itinerary, built around the budget you give it.{% endblock %}">
+<meta property="og:image" content="{{ SITE_URL }}{% static 'favicon-192.png' %}">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{% block twitter_title %}TripPilot AI — Plan Your Trip Around Your Budget{% endblock %}">
+<meta name="twitter:description" content="{% block twitter_description %}Plan a complete trip budget in minutes — real flight and hotel prices, visa guidance, transfers, food and a day-by-day itinerary, built around the budget you give it.{% endblock %}">
+<meta name="twitter:image" content="{{ SITE_URL }}{% static 'favicon-192.png' %}">
+{% endblock %}
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "TripPilot AI",
+  "url": "{{ SITE_URL }}/",
+  "logo": "{{ SITE_URL }}{% static 'favicon-192.png' %}"
+}
+</script>
+{% block structured_data %}{% endblock %}
 </head>
 <body{% block body_attrs %}{% endblock %}>
 <header class="topbar">

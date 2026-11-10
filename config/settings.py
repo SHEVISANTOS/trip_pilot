@@ -63,6 +63,16 @@ if not DEBUG:
 # present regardless of how the env var is written.
 ADMIN_URL = env("DJANGO_ADMIN_URL", default="mgmt-321073c7").strip("/") + "/"
 
+# The canonical production domain — used to build absolute URLs in
+# sitemap.xml, robots.txt, canonical/Open Graph tags and structured data,
+# regardless of which host actually served the request (a Vercel preview
+# URL, the temporary *.vercel.app alias, or the real domain once it's
+# attached). This is already the domain the Google OAuth consent screen and
+# the Privacy/Terms pages are registered under. Override via env if it
+# ever needs to point somewhere else for a while.
+SITE_DOMAIN = env("SITE_DOMAIN", default="tripilotai.com")
+SITE_URL = f"https://{SITE_DOMAIN}"
+
 
 # Application definition
 
@@ -72,6 +82,7 @@ INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
+    "django.contrib.sitemaps",
     "django.contrib.messages",
     "django.contrib.staticfiles",
     # Required by allauth even though we only use its Google social-login
@@ -149,6 +160,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "config.context_processors.site",
             ],
         },
     },

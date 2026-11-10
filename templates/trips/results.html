@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load trip_extras %}
 {% block title %}{{ trip_request.destination }} — TripPilot AI{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
 {% block content %}
 <section class="results">
   <div class="trip-banner">

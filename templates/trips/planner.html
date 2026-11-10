@@ -1,4 +1,55 @@
 {% extends "base.html" %}
+{% block structured_data %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "TripPilot AI",
+  "url": "{{ SITE_URL }}/",
+  "applicationCategory": "TravelApplication",
+  "operatingSystem": "Any (web-based)",
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is TripPilot AI free to use?",
+      "acceptedAnswer": {"@type": "Answer", "text": "Yes. Planning a trip, comparing budgets and generating an itinerary is free. You book flights and hotels directly with the airline, hotel or supplier, the same as if you'd found them yourself."}
+    },
+    {
+      "@type": "Question",
+      "name": "How accurate are the prices?",
+      "acceptedAnswer": {"@type": "Answer", "text": "TripPilot AI pulls real, live prices from flight and hotel providers whenever they have coverage for your route. When a real provider has nothing for a destination, it falls back to a regional or AI-generated estimate instead of leaving a gap. Always verify the final price and availability with the provider before booking."}
+    },
+    {
+      "@type": "Question",
+      "name": "Which destinations does it cover?",
+      "acceptedAnswer": {"@type": "Answer", "text": "Any destination. Visa guidance comes from an open, MIT-licensed passport-index dataset covering passport-to-destination pairs worldwide."}
+    },
+    {
+      "@type": "Question",
+      "name": "Do I need an account?",
+      "acceptedAnswer": {"@type": "Answer", "text": "No — building a plan works without signing up. Create an account (with email or Google) if you want to save trips, track a booking checklist, and export a PDF itinerary."}
+    },
+    {
+      "@type": "Question",
+      "name": "Can I plan a multi-city trip?",
+      "acceptedAnswer": {"@type": "Answer", "text": "Yes. Add every city on your route, in order, and TripPilot AI builds one combined budget and itinerary across all of them."}
+    },
+    {
+      "@type": "Question",
+      "name": "Is my data sold or used for advertising?",
+      "acceptedAnswer": {"@type": "Answer", "text": "No. TripPilot AI never sells your data or uses it for advertising — see the Privacy Policy for exactly which services it works with and what each one receives."}
+    }
+  ]
+}
+</script>
+{% endblock %}
 {% block content %}
 <section class="hero">
   <div class="hero-inner">
@@ -84,5 +135,39 @@
 <section id="how" class="how section">
   <h2>How TripPilot AI works</h2>
   <div class="steps"><div><b>1</b><h3>Enter your trip</h3><p>Destination, dates, travellers and budget.</p></div><div><b>2</b><h3>AI allocates</h3><p>Flights, hotel, food, transport and activities.</p></div><div><b>3</b><h3>Compare options</h3><p>Budget, recommended and premium choices.</p></div><div><b>4</b><h3>Book</h3><p>Connect to booking partners for live availability.</p></div></div>
+</section>
+
+<section id="faq" class="section">
+  <div style="max-width:760px;margin:0 auto">
+    <span class="eyebrow">FAQ</span>
+    <h2>Frequently asked questions</h2>
+
+    <h3>Is TripPilot AI free to use?</h3>
+    <p>Yes. Planning a trip, comparing budgets and generating an itinerary is free. You book flights and
+    hotels directly with the airline, hotel or supplier, the same as if you'd found them yourself.</p>
+
+    <h3>How accurate are the prices?</h3>
+    <p>TripPilot AI pulls real, live prices from flight and hotel providers whenever they have coverage
+    for your route. When a real provider has nothing for a destination, it falls back to a regional or
+    AI-generated estimate instead of leaving a gap. Always verify the final price and availability with
+    the provider before booking.</p>
+
+    <h3>Which destinations does it cover?</h3>
+    <p>Any destination. Visa guidance comes from an open, MIT-licensed passport-index dataset covering
+    passport-to-destination pairs worldwide.</p>
+
+    <h3>Do I need an account?</h3>
+    <p>No — building a plan works without signing up. Create an account (with email or Google) if you
+    want to save trips, track a booking checklist, and export a PDF itinerary.</p>
+
+    <h3>Can I plan a multi-city trip?</h3>
+    <p>Yes. Add every city on your route, in order, and TripPilot AI builds one combined budget and
+    itinerary across all of them.</p>
+
+    <h3>Is my data sold or used for advertising?</h3>
+    <p>No. TripPilot AI never sells your data or uses it for advertising — see the
+    <a href="{% url 'legal:privacy' %}">Privacy Policy</a> for exactly which services it works with and
+    what each one receives.</p>
+  </div>
 </section>
 {% endblock %}
