@@ -140,22 +140,32 @@ class SignupViewTests(TestCase):
 
 
 class EmailLoginTests(TestCase):
+    # Posts to the real login view rather than self.client.login(username=,
+    # password=) — django-axes' auth backend requires a real request to
+    # authenticate against (it tracks failed attempts per-request), which
+    # the test client's login() shortcut doesn't provide; the view does.
     def test_login_with_email_succeeds(self):
         User.objects.create_user(username="autogen1", email="loginme@example.com", password="Sup3rSecurePass!23")
-        logged_in = self.client.login(username="loginme@example.com", password="Sup3rSecurePass!23")
-        self.assertTrue(logged_in)
+        response = self.client.post(
+            reverse("accounts:login"), data={"username": "loginme@example.com", "password": "Sup3rSecurePass!23"}
+        )
+        self.assertRedirects(response, reverse("accounts:dashboard"))
 
     def test_login_with_email_is_case_insensitive(self):
         User.objects.create_user(username="autogen2", email="MixedCase@Example.com", password="Sup3rSecurePass!23")
-        logged_in = self.client.login(username="mixedcase@example.com", password="Sup3rSecurePass!23")
-        self.assertTrue(logged_in)
+        response = self.client.post(
+            reverse("accounts:login"), data={"username": "mixedcase@example.com", "password": "Sup3rSecurePass!23"}
+        )
+        self.assertRedirects(response, reverse("accounts:dashboard"))
 
     def test_legacy_account_with_no_email_still_logs_in_by_username(self):
         # Simulates one of the pre-existing accounts from before this
         # change — created with a username and no email on file at all.
         User.objects.create_user(username="oldschool", password="Sup3rSecurePass!23")
-        logged_in = self.client.login(username="oldschool", password="Sup3rSecurePass!23")
-        self.assertTrue(logged_in)
+        response = self.client.post(
+            reverse("accounts:login"), data={"username": "oldschool", "password": "Sup3rSecurePass!23"}
+        )
+        self.assertRedirects(response, reverse("accounts:dashboard"))
 
     def test_wrong_password_fails_via_the_login_view(self):
         User.objects.create_user(username="autogen3", email="wrongpw@example.com", password="Sup3rSecurePass!23")
@@ -256,8 +266,16 @@ class PasswordResetFlowTests(TestCase):
         )
         self.assertRedirects(response, reverse("accounts:password_reset_complete"))
 
-        self.assertFalse(self.client.login(username="resetme2", password="OldPass!123"))
-        self.assertTrue(self.client.login(username="resetme2", password="NewSup3rPass!99"))
+        # Posts to the real login view, not self.client.login() — see the
+        # comment on EmailLoginTests above (django-axes requires a request).
+        old_pw_response = self.client.post(
+            reverse("accounts:login"), data={"username": "resetme2", "password": "OldPass!123"}
+        )
+        self.assertEqual(old_pw_response.status_code, 200)  # re-shows the form, doesn't redirect
+        new_pw_response = self.client.post(
+            reverse("accounts:login"), data={"username": "resetme2", "password": "NewSup3rPass!99"}
+        )
+        self.assertRedirects(new_pw_response, reverse("accounts:dashboard"))
 
     def test_login_page_links_to_password_reset(self):
         response = self.client.get(reverse("accounts:login"))
